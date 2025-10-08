@@ -1,7 +1,9 @@
 package com.yads.storeservice.model;
 
 import jakarta.persistence.Embeddable;
+import lombok.Data;
 
+@Data
 @Embeddable
 public class Address {
     private String street;
