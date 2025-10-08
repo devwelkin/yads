@@ -1,0 +1,73 @@
+package com.yads.storeservice.services;
+
+import com.yads.storeservice.dto.CreateStoreRequest;
+import com.yads.storeservice.dto.StoreResponse;
+import com.yads.storeservice.exception.AccessDeniedException;
+import com.yads.storeservice.exception.ResourceNotFoundException;
+import com.yads.storeservice.mapper.StoreMapper;
+import com.yads.storeservice.model.Store;
+import com.yads.storeservice.repository.StoreRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.UUID;
+
+@Service
+@RequiredArgsConstructor
+public class StoreServiceImpl implements StoreService{
+    private final StoreRepository storeRepository;
+    private final StoreMapper storeMapper;
+
+    @Override
+    public StoreResponse createStore(CreateStoreRequest request, UUID ownerId) {
+        Store store = storeMapper.toStore(request);
+
+        store.setOwnerId(ownerId);
+        store.setIsActive(true);
+
+        Store savedStore = storeRepository.save(store);
+        return storeMapper.toStoreResponse(savedStore);
+    }
+
+    @Override
+    public StoreResponse getStoreById(UUID storeId) {
+        Store store = storeRepository.findById(storeId)
+                .orElseThrow(() -> new ResourceNotFoundException("Store not found with id: " + storeId));
+        return storeMapper.toStoreResponse(store);
+    }
+
+    @Override
+    public List<StoreResponse> getStoresByOwner(UUID ownerId) {
+        List<Store> stores = storeRepository.findByOwnerId(ownerId);
+
+        return stores.stream()
+                .map(storeMapper::toStoreResponse)
+                .toList();
+    }
+
+    @Override
+    public StoreResponse updateStore(UUID storeId, CreateStoreRequest request, UUID ownerId) {
+        Store store = storeRepository.findById(storeId)
+                .orElseThrow(() -> new ResourceNotFoundException("Store not found with id: " + storeId));
+        if (!store.getOwnerId().equals(ownerId)) {
+            throw new AccessDeniedException("User is not authorized to update this store.");
+        }
+
+        storeMapper.updateStoreFromRequest(request, store);
+        Store updatedStore = storeRepository.save(store);
+
+        return storeMapper.toStoreResponse(updatedStore);
+    }
+
+    @Override
+    public void deleteStore(UUID storeId, UUID ownerId) {
+        Store store = storeRepository.findById(storeId)
+                .orElseThrow(() -> new ResourceNotFoundException("Store not found with id: " + storeId));
+        if (!store.getOwnerId().equals(ownerId)) {
+            throw new AccessDeniedException("User is not authorized to delete this store.");
+        }
+        storeRepository.delete(store);
+    }
+
+}
