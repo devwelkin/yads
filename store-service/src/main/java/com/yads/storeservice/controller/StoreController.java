@@ -29,7 +29,7 @@ public class StoreController {
         return ResponseEntity.status(HttpStatus.CREATED).body(createdStore);
     }
 
-    // Public endpoint - tüm store'ları listeler (filtreli)
+    // All stores lister
     @GetMapping
     public ResponseEntity<List<StoreResponse>> getAllStores(
             @RequestParam(required = false) Boolean isActive,
@@ -38,7 +38,7 @@ public class StoreController {
         return ResponseEntity.ok(stores);
     }
 
-    // Owner'ın kendi store'larını listeler
+    // List owners stores
     @GetMapping("/my-stores")
     public ResponseEntity<List<StoreResponse>> getMyStores(@AuthenticationPrincipal Jwt jwt) {
         UUID ownerId = UUID.fromString(jwt.getSubject());

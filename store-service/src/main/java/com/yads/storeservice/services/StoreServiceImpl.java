@@ -86,7 +86,7 @@ public class StoreServiceImpl implements StoreService{
             throw new AccessDeniedException("User is not authorized to update this store.");
         }
 
-        // Check if name is being changed and if the new name already exists
+        // Check if the name is being changed and if the new name already exists
         if (request.getName() != null && !request.getName().equals(store.getName())) {
             if (storeRepository.existsByName(request.getName())) {
                 throw new DuplicateResourceException("Store with name '" + request.getName() + "' already exists");
