@@ -26,10 +26,10 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     @Transactional
-    public ProductResponse createProduct(ProductRequest request, UUID ownerId) {
+    public ProductResponse createProduct(UUID categoryId, ProductRequest request, UUID ownerId) {
         // Find category
-        Category category = categoryRepository.findById(request.getCategoryId())
-                .orElseThrow(() -> new ResourceNotFoundException("Category not found with id: " + request.getCategoryId()));
+        Category category = categoryRepository.findById(categoryId)
+                .orElseThrow(() -> new ResourceNotFoundException("Category not found with id: " + categoryId));
 
         // Check if user owns the store that contains this category
         if (!category.getStore().getOwnerId().equals(ownerId)) {
@@ -116,6 +116,15 @@ public class ProductServiceImpl implements ProductService {
         }
 
         List<Product> products = productRepository.findByCategoryIdAndIsAvailableTrue(categoryId);
+        return products.stream()
+                .map(productMapper::toProductResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public List<ProductResponse> getProductsByStore(UUID storeId) {
+        List<Product> products = productRepository.findByCategoryStoreId(storeId);
         return products.stream()
                 .map(productMapper::toProductResponse)
                 .toList();

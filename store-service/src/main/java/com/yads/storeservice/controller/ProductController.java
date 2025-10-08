@@ -15,46 +15,62 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/v1/products")
 @RequiredArgsConstructor
 public class ProductController {
 
     private final ProductService productService;
 
-    @PostMapping
+    /**
+     * NESTED ROUTES - Collections and Creation
+     * These routes show the relationship hierarchy
+     */
+
+    // Create product under a category
+    @PostMapping("/api/v1/categories/{categoryId}/products")
     public ResponseEntity<ProductResponse> createProduct(
+            @PathVariable UUID categoryId,
             @Valid @RequestBody ProductRequest request,
             @AuthenticationPrincipal Jwt jwt) {
         UUID ownerId = UUID.fromString(jwt.getSubject());
-        ProductResponse createdProduct = productService.createProduct(request, ownerId);
+        ProductResponse createdProduct = productService.createProduct(categoryId, request, ownerId);
         return ResponseEntity.status(HttpStatus.CREATED).body(createdProduct);
     }
 
-    @GetMapping("/{productId}")
-    public ResponseEntity<ProductResponse> getProductById(@PathVariable UUID productId) {
-        ProductResponse productResponse = productService.getProductById(productId);
-        return ResponseEntity.ok(productResponse);
-    }
-
-    @GetMapping("/category/{categoryId}")
+    // Get all products in a category
+    @GetMapping("/api/v1/categories/{categoryId}/products")
     public ResponseEntity<List<ProductResponse>> getProductsByCategory(@PathVariable UUID categoryId) {
         List<ProductResponse> products = productService.getProductsByCategory(categoryId);
         return ResponseEntity.ok(products);
     }
 
-    @GetMapping("/category/{categoryId}/available")
+    // Get only available products in a category
+    @GetMapping("/api/v1/categories/{categoryId}/products/available")
     public ResponseEntity<List<ProductResponse>> getAvailableProductsByCategory(@PathVariable UUID categoryId) {
         List<ProductResponse> products = productService.getAvailableProductsByCategory(categoryId);
         return ResponseEntity.ok(products);
     }
 
-    @GetMapping("/search")
-    public ResponseEntity<List<ProductResponse>> searchProductsByName(@RequestParam String name) {
-        List<ProductResponse> products = productService.searchProductsByName(name);
+    // Get all products in a store
+    @GetMapping("/api/v1/stores/{storeId}/products")
+    public ResponseEntity<List<ProductResponse>> getProductsByStore(@PathVariable UUID storeId) {
+        List<ProductResponse> products = productService.getProductsByStore(storeId);
         return ResponseEntity.ok(products);
     }
 
-    @PatchMapping("/{productId}")
+    /**
+     * FLAT ROUTES - Individual Resource Operations
+     * Simpler URLs for working with a specific product
+     */
+
+    // Get a single product
+    @GetMapping("/api/v1/products/{productId}")
+    public ResponseEntity<ProductResponse> getProductById(@PathVariable UUID productId) {
+        ProductResponse productResponse = productService.getProductById(productId);
+        return ResponseEntity.ok(productResponse);
+    }
+
+    // Update a product
+    @PatchMapping("/api/v1/products/{productId}")
     public ResponseEntity<ProductResponse> updateProduct(
             @PathVariable UUID productId,
             @Valid @RequestBody ProductRequest request,
@@ -64,7 +80,29 @@ public class ProductController {
         return ResponseEntity.ok(updatedProduct);
     }
 
-    @PatchMapping("/{productId}/stock")
+    // Delete a product
+    @DeleteMapping("/api/v1/products/{productId}")
+    public ResponseEntity<Void> deleteProduct(
+            @PathVariable UUID productId,
+            @AuthenticationPrincipal Jwt jwt) {
+        UUID ownerId = UUID.fromString(jwt.getSubject());
+        productService.deleteProduct(productId, ownerId);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * UTILITY ROUTES - Special operations
+     */
+
+    // Search products by name
+    @GetMapping("/api/v1/products/search")
+    public ResponseEntity<List<ProductResponse>> searchProductsByName(@RequestParam String name) {
+        List<ProductResponse> products = productService.searchProductsByName(name);
+        return ResponseEntity.ok(products);
+    }
+
+    // Update stock
+    @PatchMapping("/api/v1/products/{productId}/stock")
     public ResponseEntity<ProductResponse> updateStock(
             @PathVariable UUID productId,
             @RequestParam Integer quantity,
@@ -74,21 +112,13 @@ public class ProductController {
         return ResponseEntity.ok(updatedProduct);
     }
 
-    @PatchMapping("/{productId}/availability")
+    // Toggle availability
+    @PatchMapping("/api/v1/products/{productId}/availability")
     public ResponseEntity<ProductResponse> toggleAvailability(
             @PathVariable UUID productId,
             @AuthenticationPrincipal Jwt jwt) {
         UUID ownerId = UUID.fromString(jwt.getSubject());
         ProductResponse updatedProduct = productService.toggleAvailability(productId, ownerId);
         return ResponseEntity.ok(updatedProduct);
-    }
-
-    @DeleteMapping("/{productId}")
-    public ResponseEntity<Void> deleteProduct(
-            @PathVariable UUID productId,
-            @AuthenticationPrincipal Jwt jwt) {
-        UUID ownerId = UUID.fromString(jwt.getSubject());
-        productService.deleteProduct(productId, ownerId);
-        return ResponseEntity.noContent().build();
     }
 }

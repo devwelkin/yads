@@ -13,6 +13,7 @@ import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -24,19 +25,34 @@ public class CategoryServiceImpl implements CategoryService {
     private final CategoryMapper categoryMapper;
     @Override
     @Transactional
-    public CategoryResponse createCategory(CategoryRequest categoryRequest,UUID ownerId) {
+    public CategoryResponse createCategory(UUID storeId, CategoryRequest categoryRequest, UUID ownerId) {
         // Find store
-        Store store = storeRepository.findById(categoryRequest.getStoreId())
-                .orElseThrow(() -> new ResourceNotFoundException("Store not found with id: " + categoryRequest.getStoreId()));
+        Store store = storeRepository.findById(storeId)
+                .orElseThrow(() -> new ResourceNotFoundException("Store not found with id: " + storeId));
+
         // Store owner check
         if (!store.getOwnerId().equals(ownerId)) {
             throw new AccessDeniedException("User is not authorized to create category for this store");
         }
+
         Category category = categoryMapper.toCategory(categoryRequest);
         category.setStore(store);
 
         Category savedCategory = categoryRepository.save(category);
         return categoryMapper.toCategoryResponse(savedCategory);
+    }
+
+    @Override
+    @Transactional
+    public List<CategoryResponse> getCategoriesByStore(UUID storeId) {
+        // Verify store exists
+        storeRepository.findById(storeId)
+                .orElseThrow(() -> new ResourceNotFoundException("Store not found with id: " + storeId));
+
+        List<Category> categories = categoryRepository.findByStoreId(storeId);
+        return categories.stream()
+                .map(categoryMapper::toCategoryResponse)
+                .toList();
     }
 
     @Override

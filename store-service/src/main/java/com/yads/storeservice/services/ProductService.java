@@ -8,7 +8,7 @@ import java.util.UUID;
 
 public interface ProductService {
     // CRUD Operations
-    ProductResponse createProduct(ProductRequest request, UUID ownerId);
+    ProductResponse createProduct(UUID categoryId, ProductRequest request, UUID ownerId);
     ProductResponse updateProduct(UUID productId, ProductRequest request, UUID ownerId);
     void deleteProduct(UUID productId, UUID ownerId);
     ProductResponse getProductById(UUID productId);
@@ -16,6 +16,9 @@ public interface ProductService {
     // Listing by Category
     List<ProductResponse> getProductsByCategory(UUID categoryId);
     List<ProductResponse> getAvailableProductsByCategory(UUID categoryId);
+
+    // Listing by Store
+    List<ProductResponse> getProductsByStore(UUID storeId);
 
     // Search
     List<ProductResponse> searchProductsByName(String name);

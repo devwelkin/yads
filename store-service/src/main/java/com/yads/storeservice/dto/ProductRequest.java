@@ -8,7 +8,6 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.math.BigDecimal;
-import java.util.UUID;
 
 @Data
 @Builder
@@ -28,7 +27,4 @@ public class ProductRequest {
     private Integer stock = 0;
 
     private String imageUrl;
-
-    @NotNull(message = "category id is required")
-    private UUID categoryId;
 }
