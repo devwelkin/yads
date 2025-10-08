@@ -17,6 +17,7 @@ public interface CategoryMapper {
      * Directly maps the ID from the associated Store object to the 'storeId' field.
      */
     @Mapping(source = "store.id",target = "storeId")
+    @Mapping(target = "productCount", expression = "java(category.getProducts() != null ? category.getProducts().size() : 0)")
     CategoryResponse toCategoryResponse(Category category);
 
     /**

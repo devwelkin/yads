@@ -15,5 +15,5 @@ public class CategoryResponse {
     private String description;
     private UUID storeId;
 
-    private List<ProductResponse> products;
+    private Integer productCount;
 }

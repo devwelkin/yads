@@ -7,6 +7,7 @@ import com.yads.storeservice.exception.ResourceNotFoundException;
 import com.yads.storeservice.mapper.StoreMapper;
 import com.yads.storeservice.model.Store;
 import com.yads.storeservice.repository.StoreRepository;
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -20,6 +21,7 @@ public class StoreServiceImpl implements StoreService{
     private final StoreMapper storeMapper;
 
     @Override
+    @Transactional
     public StoreResponse createStore(StoreRequest request, UUID ownerId) {
         Store store = storeMapper.toStore(request);
 
@@ -31,6 +33,7 @@ public class StoreServiceImpl implements StoreService{
     }
 
     @Override
+    @Transactional
     public StoreResponse getStoreById(UUID storeId) {
         Store store = storeRepository.findById(storeId)
                 .orElseThrow(() -> new ResourceNotFoundException("Store not found with id: " + storeId));
@@ -38,6 +41,7 @@ public class StoreServiceImpl implements StoreService{
     }
 
     @Override
+    @Transactional
     public List<StoreResponse> getStoresByOwner(UUID ownerId) {
         List<Store> stores = storeRepository.findByOwnerId(ownerId);
 
@@ -47,6 +51,7 @@ public class StoreServiceImpl implements StoreService{
     }
 
     @Override
+    @Transactional
     public StoreResponse updateStore(UUID storeId, StoreRequest request, UUID ownerId) {
         Store store = storeRepository.findById(storeId)
                 .orElseThrow(() -> new ResourceNotFoundException("Store not found with id: " + storeId));
@@ -61,6 +66,7 @@ public class StoreServiceImpl implements StoreService{
     }
 
     @Override
+    @Transactional
     public void deleteStore(UUID storeId, UUID ownerId) {
         Store store = storeRepository.findById(storeId)
                 .orElseThrow(() -> new ResourceNotFoundException("Store not found with id: " + storeId));
