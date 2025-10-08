@@ -1,10 +1,10 @@
-package com.fitness.storeservice;
+package com.yads.eureka;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest
-class StoreServiceApplicationTests {
+class EurekaApplicationTests {
 
 	@Test
 	void contextLoads() {
