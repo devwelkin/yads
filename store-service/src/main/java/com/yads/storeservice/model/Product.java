@@ -28,14 +28,14 @@ public class Product {
     @Column(nullable = false)
     private BigDecimal price;
 
-    // basic stock tracking as per your plan
+    // basic stock tracking
     @Column(nullable = false)
     private Integer stock = 0;
 
     private String imageUrl;
 
     @Column(name = "is_available", nullable = false)
-    private boolean isAvailable = true;
+    private Boolean isAvailable = true;
 
     // a product belongs to exactly one category.
     @ManyToOne(fetch = FetchType.LAZY)

@@ -7,9 +7,9 @@ spring:
     username: postgres
     password: password
 
-    jpa:
-      hibernate:
-        ddl-auto: update
+  jpa:
+    hibernate:
+      ddl-auto: update
 
 
 
