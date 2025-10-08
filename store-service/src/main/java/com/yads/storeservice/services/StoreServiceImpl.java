@@ -3,6 +3,7 @@ package com.yads.storeservice.services;
 import com.yads.storeservice.dto.StoreRequest;
 import com.yads.storeservice.dto.StoreResponse;
 import com.yads.storeservice.exception.AccessDeniedException;
+import com.yads.storeservice.exception.DuplicateResourceException;
 import com.yads.storeservice.exception.ResourceNotFoundException;
 import com.yads.storeservice.mapper.StoreMapper;
 import com.yads.storeservice.model.Store;
@@ -24,6 +25,11 @@ public class StoreServiceImpl implements StoreService{
     @Override
     @Transactional
     public StoreResponse createStore(StoreRequest request, UUID ownerId) {
+        // Check if a store with the same name already exists
+        if (storeRepository.existsByName(request.getName())) {
+            throw new DuplicateResourceException("Store with name '" + request.getName() + "' already exists");
+        }
+
         Store store = storeMapper.toStore(request);
 
         store.setOwnerId(ownerId);
@@ -78,6 +84,13 @@ public class StoreServiceImpl implements StoreService{
                 .orElseThrow(() -> new ResourceNotFoundException("Store not found with id: " + storeId));
         if (!store.getOwnerId().equals(ownerId)) {
             throw new AccessDeniedException("User is not authorized to update this store.");
+        }
+
+        // Check if name is being changed and if the new name already exists
+        if (request.getName() != null && !request.getName().equals(store.getName())) {
+            if (storeRepository.existsByName(request.getName())) {
+                throw new DuplicateResourceException("Store with name '" + request.getName() + "' already exists");
+            }
         }
 
         storeMapper.updateStoreFromRequest(request, store);
