@@ -64,7 +64,7 @@ public class CategoryServiceImpl implements CategoryService {
 
         // Authorization check
         if (!category.getStore().getOwnerId().equals(ownerId)) {
-            throw new AccessDeniedException("User is not authorized to update this category");
+            throw new AccessDeniedException("User is not authorized to delete this category");
         }
 
         categoryRepository.delete(category);
