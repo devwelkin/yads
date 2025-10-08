@@ -1,6 +1,7 @@
 package com.yads.storeservice.repository;
 
 import com.yads.storeservice.model.Store;
+import com.yads.storeservice.model.StoreType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -11,4 +12,7 @@ import java.util.UUID;
 public interface StoreRepository extends JpaRepository<Store, UUID> {
     List<Store> findByOwnerId(UUID ownerId);
     List<Store> findByAddressCity(String city);
+    List<Store> findByIsActive(Boolean isActive);
+    List<Store> findByStoreType(com.yads.storeservice.model.StoreType storeType);
+    List<Store> findByIsActiveAndStoreType(Boolean isActive, StoreType storeType);
 }
