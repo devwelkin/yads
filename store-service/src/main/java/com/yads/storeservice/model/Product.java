@@ -25,7 +25,6 @@ public class Product {
 
     private String description;
 
-    // DO NOT use double or float for money. EVER.
     @Column(nullable = false)
     private BigDecimal price;
 

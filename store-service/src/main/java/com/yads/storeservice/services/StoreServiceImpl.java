@@ -1,6 +1,6 @@
 package com.yads.storeservice.services;
 
-import com.yads.storeservice.dto.CreateStoreRequest;
+import com.yads.storeservice.dto.StoreRequest;
 import com.yads.storeservice.dto.StoreResponse;
 import com.yads.storeservice.exception.AccessDeniedException;
 import com.yads.storeservice.exception.ResourceNotFoundException;
@@ -20,7 +20,7 @@ public class StoreServiceImpl implements StoreService{
     private final StoreMapper storeMapper;
 
     @Override
-    public StoreResponse createStore(CreateStoreRequest request, UUID ownerId) {
+    public StoreResponse createStore(StoreRequest request, UUID ownerId) {
         Store store = storeMapper.toStore(request);
 
         store.setOwnerId(ownerId);
@@ -47,7 +47,7 @@ public class StoreServiceImpl implements StoreService{
     }
 
     @Override
-    public StoreResponse updateStore(UUID storeId, CreateStoreRequest request, UUID ownerId) {
+    public StoreResponse updateStore(UUID storeId, StoreRequest request, UUID ownerId) {
         Store store = storeRepository.findById(storeId)
                 .orElseThrow(() -> new ResourceNotFoundException("Store not found with id: " + storeId));
         if (!store.getOwnerId().equals(ownerId)) {

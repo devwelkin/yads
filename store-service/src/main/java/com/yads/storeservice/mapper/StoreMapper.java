@@ -1,6 +1,6 @@
 package com.yads.storeservice.mapper;
 
-import com.yads.storeservice.dto.CreateStoreRequest;
+import com.yads.storeservice.dto.StoreRequest;
 import com.yads.storeservice.dto.StoreResponse;
 import com.yads.storeservice.model.Store;
 import org.mapstruct.Mapper;
@@ -16,7 +16,7 @@ public interface StoreMapper {
      * @param request the source dto
      * @return a new store entity
      */
-    Store toStore(CreateStoreRequest request);
+    Store toStore(StoreRequest request);
 
     /**
      * @param store the source entity
@@ -28,5 +28,5 @@ public interface StoreMapper {
      * @param request the source dto with new data
      * @param store   the existing entity to be updated
      */
-    void updateStoreFromRequest(CreateStoreRequest request, @MappingTarget Store store);
+    void updateStoreFromRequest(StoreRequest request, @MappingTarget Store store);
 }

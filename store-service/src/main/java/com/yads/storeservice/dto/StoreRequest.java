@@ -5,7 +5,7 @@ import com.yads.storeservice.model.StoreType;
 import lombok.Data;
 
 @Data
-public class CreateStoreRequest {
+public class StoreRequest {
     private String name;
     private String description;
     private StoreType storeType;
