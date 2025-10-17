@@ -1,9 +1,14 @@
 spring:
   application:
     name: user-service
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8700/realms/yads
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/store_service_db
+    url: jdbc:postgresql://localhost:5433/user_service_db
     username: postgres
     password: password
 

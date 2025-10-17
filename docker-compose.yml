@@ -1,5 +1,5 @@
 services:
-  postgres:
+  store-service-postgres:
     image: postgres:16-alpine
     container_name: store-service-postgres
     environment:
@@ -9,9 +9,50 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data_store:/var/lib/postgresql/data
+  user-service-postgres:
+    image: postgres:16-alpine
+    container_name: user-service-postgres
+    environment:
+      POSTGRES_DB: user_service_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data_user:/var/lib/postgresql/data
+
+  # Keycloak's Database
+  keycloak_db:
+    image: postgres:16
+    container_name: kc_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: keycloak_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres_data_keycloak:/var/lib/postgresql/data
+
+  # Keycloak Authentication Service
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: keycloak
+    command: start-dev --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL_HOST: keycloak_db
+      KC_DB_URL_DATABASE: keycloak_db
+      KC_DB_USERNAME: postgres
+      KC_DB_PASSWORD: password
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: 1234
+    ports:
+      - "8700:8080"
 
 
 
 volumes:
-  postgres_data:
+  postgres_data_store:
+  postgres_data_user:
+  postgres_data_keycloak:

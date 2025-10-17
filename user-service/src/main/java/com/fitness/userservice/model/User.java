@@ -1,6 +1,7 @@
 package com.fitness.userservice.model;
 
 import jakarta.persistence.*;
+import lombok.Data;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
@@ -10,6 +11,8 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "users")
+@Data
+
 public class User {
 
     @Id // This IS the Keycloak subject ID ('sub' claim)
@@ -26,8 +29,9 @@ public class User {
     private String profileImageUrl; // Managed by the user
 
     // The user has many addresses. when a user is deleted, their addresses go too.
-    @Column(nullable = false)
-    private String address;
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "user_addresses", joinColumns = @JoinColumn(name = "user_id"))
+    private List<Address> addresses; //
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
