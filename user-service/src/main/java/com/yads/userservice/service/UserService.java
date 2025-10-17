@@ -1,6 +1,6 @@
-package com.fitness.userservice.service;
+package com.yads.userservice.service;
 
-import com.fitness.userservice.dto.UserResponse;
+import com.yads.userservice.dto.UserResponse;
 import org.springframework.security.oauth2.jwt.Jwt;
 
 public interface UserService {

@@ -1,8 +1,8 @@
-package com.fitness.userservice.service;
+package com.yads.userservice.service;
 
-import com.fitness.userservice.dto.UserResponse;
-import com.fitness.userservice.model.User;
-import com.fitness.userservice.repository.UserRepository;
+import com.yads.userservice.dto.UserResponse;
+import com.yads.userservice.model.User;
+import com.yads.userservice.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;

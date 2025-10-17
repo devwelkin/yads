@@ -1,4 +1,4 @@
-package com.fitness.userservice.model;
+package com.yads.userservice.model;
 
 import jakarta.persistence.*;
 import lombok.Data;

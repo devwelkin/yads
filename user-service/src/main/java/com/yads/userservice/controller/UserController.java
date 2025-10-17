@@ -1,7 +1,7 @@
-package com.fitness.userservice.controller;
+package com.yads.userservice.controller;
 
-import com.fitness.userservice.dto.UserResponse;
-import com.fitness.userservice.service.UserService;
+import com.yads.userservice.dto.UserResponse;
+import com.yads.userservice.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;

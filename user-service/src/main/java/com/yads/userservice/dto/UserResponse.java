@@ -1,6 +1,6 @@
-package com.fitness.userservice.dto;
+package com.yads.userservice.dto;
 
-import com.fitness.userservice.model.Address;
+import com.yads.userservice.model.Address;
 import lombok.Builder;
 import lombok.Data;
 

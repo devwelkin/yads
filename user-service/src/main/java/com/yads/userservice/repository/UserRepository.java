@@ -1,6 +1,6 @@
-package com.fitness.userservice.repository;
+package com.yads.userservice.repository;
 
-import com.fitness.userservice.model.User;
+import com.yads.userservice.model.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 

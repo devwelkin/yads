@@ -1,4 +1,4 @@
-package com.fitness.userservice.config;
+package com.yads.userservice.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
