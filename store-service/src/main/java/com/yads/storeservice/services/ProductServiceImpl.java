@@ -1,5 +1,6 @@
 package com.yads.storeservice.services;
 
+import com.yads.storeservice.dto.ProductEventDto;
 import com.yads.storeservice.dto.ProductRequest;
 import com.yads.storeservice.dto.ProductResponse;
 import com.yads.storeservice.exception.AccessDeniedException;
@@ -11,6 +12,8 @@ import com.yads.storeservice.repository.CategoryRepository;
 import com.yads.storeservice.repository.ProductRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.amqp.core.TopicExchange;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -23,6 +26,8 @@ public class ProductServiceImpl implements ProductService {
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
     private final ProductMapper productMapper;
+    private final RabbitTemplate rabbitTemplate;
+    private final TopicExchange storeEventsExchange;
 
     @Override
     @Transactional
@@ -43,8 +48,13 @@ public class ProductServiceImpl implements ProductService {
         // Set availability based on stock (if stock > 0, make it available)
         product.setIsAvailable(request.getStock() != null && request.getStock() > 0);
 
+
+
         // Save and return
         Product savedProduct = productRepository.save(product);
+
+        // Publish product creation event
+        publishProductUpdate(savedProduct, "product.created");
         return productMapper.toProductResponse(savedProduct);
     }
 
@@ -65,6 +75,9 @@ public class ProductServiceImpl implements ProductService {
 
         // Save and return
         Product updatedProduct = productRepository.save(product);
+
+        // Publish product update event
+        publishProductUpdate(updatedProduct, "product.updated");
         return productMapper.toProductResponse(updatedProduct);
     }
 
@@ -82,6 +95,8 @@ public class ProductServiceImpl implements ProductService {
 
         // Delete
         productRepository.delete(product);
+        // Publish product deletion event
+        rabbitTemplate.convertAndSend(storeEventsExchange.getName(), "product.deleted", productId);
     }
 
     @Override
@@ -159,6 +174,9 @@ public class ProductServiceImpl implements ProductService {
 
         // Save and return
         Product updatedProduct = productRepository.save(product);
+
+        // Publish product update event
+        publishProductUpdate(updatedProduct, "product.stock.updated");
         return productMapper.toProductResponse(updatedProduct);
     }
 
@@ -179,6 +197,23 @@ public class ProductServiceImpl implements ProductService {
 
         // Save and return
         Product updatedProduct = productRepository.save(product);
+
+        // Publish product update event
+        publishProductUpdate(updatedProduct, "product.availability.updated");
         return productMapper.toProductResponse(updatedProduct);
+    }
+
+    // Helper method for publishing product update events
+    private void publishProductUpdate(Product product, String routingKey) {
+        ProductEventDto eventDto = ProductEventDto.builder()
+                .productId(product.getId())
+                .name(product.getName())
+                .price(product.getPrice())
+                .stock(product.getStock())
+                .isAvailable(product.getIsAvailable())
+                .storeId(product.getCategory().getStore().getId())
+                .build();
+
+        rabbitTemplate.convertAndSend(storeEventsExchange.getName(), routingKey, eventDto);
     }
 }

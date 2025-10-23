@@ -33,7 +33,7 @@ public class OrderServiceImpl implements OrderService {
     private final OrderRepository orderRepository;
     private final WebClient.Builder webClientBuilder;
     private final OrderMapper orderMapper;
-    private final RabbitTemplate rabbitTemplate; // RabbitMQ için
+    private final RabbitTemplate rabbitTemplate;
 
     // store-service'in eureka'daki adresi
     private final String STORE_SERVICE_URL = "http://store-service";
