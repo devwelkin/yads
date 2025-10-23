@@ -9,46 +9,38 @@ import org.springframework.stereotype.Service;
 
 import java.util.Collections;
 import java.util.UUID;
-
 @Service
 @RequiredArgsConstructor
 public class UserServiceImpl implements UserService {
     private final UserRepository userRepository;
-
-
     public UserResponse processUserLogin(Jwt jwt) {
         UUID userId = UUID.fromString(jwt.getSubject());
 
-        User user = userRepository.findById(userId)
-                .map(existingUser -> {
-                    // kullanıcı zaten var, bilgilerini jwt'den gelenlerle güncelleyebiliriz
-                    existingUser.setName(jwt.getClaim("name"));
-                    existingUser.setEmail(jwt.getClaim("email"));
-                    return existingUser;
-                })
+        // find the user profile in our db.
+        // if it doesn't exist (e.g., first login), create a new, empty profile
+        // and save it. this ensures we always have a record to attach addresses to.
+        User userProfile = userRepository.findById(userId)
                 .orElseGet(() -> {
-                    // kullanıcı yok, yenisini oluştur
+                    // user yok, yenisini oluştur (sadece id ve boş adres listesiyle)
                     User newUser = new User();
                     newUser.setId(userId);
-                    newUser.setName(jwt.getClaim("name"));
-                    newUser.setEmail(jwt.getClaim("email"));
-                    // profil resmi ve adresler başlangıçta boş olabilir
-                    newUser.setProfileImageUrl(jwt.getClaim("picture"));
                     newUser.setAddresses(Collections.emptyList());
-                    return newUser;
+                    return userRepository.save(newUser); // save the new, minimal profile
                 });
 
-        User savedUser = userRepository.save(user);
-        return toUserResponse(savedUser);
+        // now, assemble the response using data from *both*
+        // the db profile (for addresses) and the live jwt (for everything else)
+        return toUserResponse(userProfile, jwt);
     }
 
-    private UserResponse toUserResponse(User user) {
+    // updated signature: requires jwt
+    private UserResponse toUserResponse(User user, Jwt jwt) {
         return UserResponse.builder()
                 .id(user.getId())
-                .name(user.getName())
-                .email(user.getEmail())
-                .profileImageUrl(user.getProfileImageUrl())
-                .addresses(user.getAddresses())
+                .name(jwt.getClaim("name")) // from jwt
+                .email(jwt.getClaim("email")) // from jwt
+                .profileImageUrl(jwt.getClaim("picture")) // from jwt
+                .addresses(user.getAddresses()) // from our db
                 .build();
     }
 }

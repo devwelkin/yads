@@ -18,15 +18,6 @@ public class User {
     @Id // This IS the Keycloak subject ID ('sub' claim)
     private UUID id;
 
-    // Synced from Keycloak JWT
-    @Column(nullable = false)
-    private String name;
-
-    // Synced from Keycloak JWT
-    @Column(nullable = false, unique = true)
-    private String email;
-
-    private String profileImageUrl; // Managed by the user
 
     // The user has many addresses. when a user is deleted, their addresses go too.
     @ElementCollection(fetch = FetchType.LAZY)
