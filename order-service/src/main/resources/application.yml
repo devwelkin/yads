@@ -4,6 +4,11 @@ server:
 spring:
   application:
     name: order-service
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
 
 
   datasource:
@@ -15,16 +20,13 @@ spring:
       ddl-auto: update
 
 
-  rabbitmq:
-    host: localhost
-    port: 5672
+
 
   security:
     oauth2:
       resourceserver:
         jwt:
-          issuer-uri: http://localhost:8080/realms/senin-realm-adin # D??ERLER?YLE AYNI OLMALI
-
+          issuer-uri: http://localhost:8700/realms/yads
 eureka:
   client:
     serviceUrl:

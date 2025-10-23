@@ -27,6 +27,7 @@ public class SecurityConfig {
                         .pathMatchers("/user-service/**").authenticated()
                         // Keep rest of store-service (POST, PATCH etc.) protected
                         .pathMatchers("/store-service/**").authenticated()
+                        .pathMatchers("/order-service/**").authenticated()
 
                         // Everything else (e.g. if /order-service/** comes)
                         .anyExchange().authenticated()

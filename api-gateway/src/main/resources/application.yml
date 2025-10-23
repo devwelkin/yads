@@ -22,11 +22,17 @@ spring:
               filters:
                 - StripPrefix=1
 
-
             - id: store-service-route
               uri: lb://STORE-SERVICE
               predicates:
                 - Path=/store-service/**
+              filters:
+                - StripPrefix=1
+
+            - id: order-service-route
+              uri: lb://order-service
+              predicates:
+                - Path=/order-service/**
               filters:
                 - StripPrefix=1
 
