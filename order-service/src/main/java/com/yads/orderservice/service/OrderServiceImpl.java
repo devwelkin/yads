@@ -9,7 +9,9 @@ import com.yads.orderservice.mapper.OrderMapper;
 import com.yads.orderservice.model.Order;
 import com.yads.orderservice.model.OrderItem;
 import com.yads.orderservice.model.OrderStatus;
+import com.yads.orderservice.model.ProductSnapshot;
 import com.yads.orderservice.repository.OrderRepository;
+import com.yads.orderservice.repository.ProductSnapshotRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -31,76 +33,66 @@ import java.util.stream.Collectors;
 public class OrderServiceImpl implements OrderService {
 
     private final OrderRepository orderRepository;
-    private final WebClient.Builder webClientBuilder;
     private final OrderMapper orderMapper;
     private final RabbitTemplate rabbitTemplate;
+    private final ProductSnapshotRepository snapshotRepository;
 
-    // store-service'in eureka'daki adresi
-    private final String STORE_SERVICE_URL = "http://store-service";
 
+    @Override
+    @Transactional // Add @transactional
     public OrderResponse createOrder(OrderRequest orderRequest, Jwt jwt) {
         log.info("Order creation process started. Store ID: {}", orderRequest.getStoreId());
         UUID userId = UUID.fromString(jwt.getSubject());
 
-        // --- Step 1: Get All Products from store-service ---
-        // Get the list of all products in that store using 'storeId'
-        List<ProductSnapshotDto> storeProductsList = webClientBuilder.build()
-                .get()
-                .uri(STORE_SERVICE_URL + "/api/v1/stores/{storeId}/products", orderRequest.getStoreId())
-                .retrieve()
-                .bodyToFlux(ProductSnapshotDto.class) // Using Flux since we'll receive a list
-                .collectList()
-                .block(); // Converting async operation to sync and waiting
 
-        if (storeProductsList == null || storeProductsList.isEmpty()) {
-            log.warn("Store not found or store has no products. Store ID: {}", orderRequest.getStoreId());
-            throw new IllegalArgumentException("Store not found or has no products.");
-        }
-
-        // Convert this list to a Map for faster lookup (Key: productId, Value: Product)
-        Map<UUID, ProductSnapshotDto> storeProductMap = storeProductsList.stream()
-                .collect(Collectors.toMap(ProductSnapshotDto::getId, product -> product));
-
-        log.info("Retrieved {} products from store with ID: {}", storeProductMap.size(), orderRequest.getStoreId());
-
-        // --- Step 2: Validate Cart and Create OrderItem List ---
+        // --- Step 2: Validate cart
         BigDecimal totalPrice = BigDecimal.ZERO;
         List<OrderItem> orderItems = new java.util.ArrayList<>();
 
         for (OrderItemRequest reqItem : orderRequest.getItems()) {
-            ProductSnapshotDto productInfo = storeProductMap.get(reqItem.getProductId());
+            // Get from local db
+            ProductSnapshot productInfo = snapshotRepository.findById(reqItem.getProductId())
+                    .orElseThrow(() -> new IllegalArgumentException("Product not found: " + reqItem.getProductId()));
 
-            // -- Start Validation --
-            if (productInfo == null) {
-                log.error("Product in cart not found in store. Product ID: {}", reqItem.getProductId());
-                throw new IllegalArgumentException("Product not found: " + reqItem.getProductId());
+            // --- Validation ---
+            // 1. Does product belong to this store?
+            if (!productInfo.getStoreId().equals(orderRequest.getStoreId())) {
+                throw new IllegalArgumentException("Product " + productInfo.getName() + " does not belong to store " + orderRequest.getStoreId());
             }
+
+            // 2. Is product available?
             if (!productInfo.isAvailable()) {
-                log.error("Product in cart is not available (available=false). Product: {}", productInfo.getName());
+                log.error("Product in cart is not available. Product: {}", productInfo.getName());
                 throw new IllegalArgumentException("Product not available: " + productInfo.getName());
             }
+
+            // 3. Is there enough stock?
             if (productInfo.getStock() < reqItem.getQuantity()) {
                 log.error("Insufficient stock. Product: {}, Requested: {}, Stock: {}", productInfo.getName(), reqItem.getQuantity(), productInfo.getStock());
                 throw new IllegalArgumentException("Insufficient stock: " + productInfo.getName());
             }
-            // -- End Validation --
+            // -- End validation --
 
-            // Validation successful. Create OrderItem.
+            // Create orderitem
             OrderItem item = new OrderItem();
-            // item.setOrder(order); // -> we'll do this later
-            item.setProductId(productInfo.getId());
-            item.setProductName(productInfo.getName()); // snapshot: copy name from store
-            item.setPrice(productInfo.getPrice()); // snapshot: copy price from store
+            item.setProductId(productInfo.getProductId()); // id name changed
+            item.setProductName(productInfo.getName());
+            item.setPrice(productInfo.getPrice());
             item.setQuantity(reqItem.getQuantity());
 
             orderItems.add(item);
 
             // Calculate total price
             totalPrice = totalPrice.add(productInfo.getPrice().multiply(BigDecimal.valueOf(reqItem.getQuantity())));
-        }
-        log.info("Cart validated. Total Price: {}", totalPrice);
 
-        // --- Step 3: Create Order and Save to DB ---
+            // (optional but important) Update stock
+            // We could make this async but let's keep it here for now
+            productInfo.setStock(productInfo.getStock() - reqItem.getQuantity());
+            snapshotRepository.save(productInfo);
+        }
+        log.info("Cart validated locally. Total Price: {}", totalPrice);
+
+        // --- Step 3: Save order
         Order order = new Order();
         order.setUserId(userId);
         order.setStoreId(orderRequest.getStoreId());
@@ -108,32 +100,21 @@ public class OrderServiceImpl implements OrderService {
         order.setStatus(OrderStatus.PENDING);
         order.setTotalPrice(totalPrice);
 
-        // Link OrderItems to Order (for bidirectional relationship)
-        for (OrderItem item : orderItems) {
-            item.setOrder(order);
-        }
+        orderItems.forEach(item -> item.setOrder(order));
         order.setItems(orderItems);
 
         Order savedOrder = orderRepository.save(order);
         log.info("Order saved to database. ID: {}", savedOrder.getId());
 
+        // --- Step 4: rabbitmq event
         OrderResponse orderResponse = orderMapper.toOrderResponse(savedOrder);
-
-        // --- Step 5: Send 'order.created' event to RabbitMQ ---
-        // We send the response dto as the event.
-        // This way the listening service (e.g. notification-service) doesn't need
-        // to make another request to order-service for order details.
-
         try {
             rabbitTemplate.convertAndSend("order_events_exchange", "order.created", orderResponse);
             log.info("'order.created' event sent to RabbitMQ. order id: {}", savedOrder.getId());
         } catch (Exception e) {
             log.error("ERROR occurred while sending event to RabbitMQ. order id: {}. error: {}", savedOrder.getId(), e.getMessage());
-            // note: we should not rollback the order transaction here (non-transactional).
-            // compensation mechanism is a more complex scenario, for now we just log it.
         }
 
-        // --- Step 5: Map and Return Response ---
         return orderResponse;
     }
 
@@ -153,7 +134,6 @@ public class OrderServiceImpl implements OrderService {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new RuntimeException("Order not found with id: " + orderId)); // TODO: proper exception
 
-        // güvenlik: kullanıcı sadece kendi siparişini görebilmeli
         if (!order.getUserId().equals(userId)) {
             throw new RuntimeException("Access Denied"); // TODO: proper exception
         }
