@@ -21,6 +21,17 @@ services:
       - "5433:5432"
     volumes:
       - postgres_data_user:/var/lib/postgresql/data
+  order-service-postgres:
+    image: postgres:16-alpine
+    container_name: order-service-postgres
+    environment:
+      POSTGRES_DB: order_service_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_data_order:/var/lib/postgresql/data
 
   # Keycloak's Database
   keycloak_db:
@@ -55,4 +66,5 @@ services:
 volumes:
   postgres_data_store:
   postgres_data_user:
+  postgres_data_order:
   postgres_data_keycloak:
