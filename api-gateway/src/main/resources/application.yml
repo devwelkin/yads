@@ -13,7 +13,7 @@ spring:
   cloud:
     gateway:
       server:
-        webmvc:
+        webflux:
           routes:
             - id: user-service-route
               uri: lb://USER-SERVICE
