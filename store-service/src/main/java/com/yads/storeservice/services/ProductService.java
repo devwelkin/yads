@@ -1,5 +1,6 @@
 package com.yads.storeservice.services;
 
+import com.yads.common.dto.ReserveStockRequest;
 import com.yads.storeservice.dto.ProductRequest;
 import com.yads.storeservice.dto.ProductResponse;
 
@@ -26,4 +27,9 @@ public interface ProductService {
     // Stock Management
     ProductResponse updateStock(UUID productId, Integer quantity, UUID ownerId);
     ProductResponse toggleAvailability(UUID productId, UUID ownerId);
+
+    // Reserve product and update stock
+    ProductResponse reserveProduct(UUID productId, ReserveStockRequest request);
+
+
 }

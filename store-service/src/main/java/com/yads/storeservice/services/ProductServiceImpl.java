@@ -1,9 +1,11 @@
 package com.yads.storeservice.services;
 
 import com.yads.common.contracts.ProductEventDto;
+import com.yads.common.dto.ReserveStockRequest;
 import com.yads.storeservice.dto.ProductRequest;
 import com.yads.storeservice.dto.ProductResponse;
 import com.yads.storeservice.exception.AccessDeniedException;
+import com.yads.storeservice.exception.DuplicateResourceException;
 import com.yads.storeservice.exception.ResourceNotFoundException;
 import com.yads.storeservice.mapper.ProductMapper;
 import com.yads.storeservice.model.Category;
@@ -201,6 +203,40 @@ public class ProductServiceImpl implements ProductService {
         // Publish product update event
         publishProductUpdate(updatedProduct, "product.availability.updated");
         return productMapper.toProductResponse(updatedProduct);
+    }
+
+    @Override
+    @Transactional
+    public ProductResponse reserveProduct(UUID productId, ReserveStockRequest request) {
+        // Find product
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + productId));
+
+        // Store control
+        if (!product.getCategory().getStore().getId().equals(request.getStoreId())) {
+            throw new IllegalArgumentException("Product " + product.getName() + " does not belong to store " + request.getStoreId());
+        }
+
+        if (!product.getIsAvailable()) {
+            throw new DuplicateResourceException("Product " + product.getName() + " is not available");
+        }
+
+        if (product.getStock() < request.getQuantity()) {
+            throw new DuplicateResourceException("Not enough stock for product " + product.getName());
+        }
+
+        int newStock = product.getStock() - request.getQuantity();
+        product.setStock(newStock);
+
+        if (newStock == 0) {
+            product.setIsAvailable(false);
+        }
+
+        Product savedProduct = productRepository.save(product);
+
+        publishProductUpdate(savedProduct, "product.stock.reserved");
+
+        return productMapper.toProductResponse(savedProduct);
     }
 
     // Helper method for publishing product update events

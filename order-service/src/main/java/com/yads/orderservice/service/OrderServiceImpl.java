@@ -1,6 +1,7 @@
 // order-service/src/main/java/com/yads/orderservice/service/OrderServiceImpl.java
 package com.yads.orderservice.service;
 
+import com.yads.common.dto.ReserveStockRequest;
 import com.yads.orderservice.dto.OrderItemRequest;
 import com.yads.orderservice.dto.OrderRequest;
 import com.yads.orderservice.dto.OrderResponse;
@@ -9,21 +10,19 @@ import com.yads.orderservice.mapper.OrderMapper;
 import com.yads.orderservice.model.Order;
 import com.yads.orderservice.model.OrderItem;
 import com.yads.orderservice.model.OrderStatus;
-import com.yads.orderservice.model.ProductSnapshot;
 import com.yads.orderservice.repository.OrderRepository;
-import com.yads.orderservice.repository.ProductSnapshotRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono; // WebClient (webflux) için
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -35,8 +34,7 @@ public class OrderServiceImpl implements OrderService {
     private final OrderRepository orderRepository;
     private final OrderMapper orderMapper;
     private final RabbitTemplate rabbitTemplate;
-    private final ProductSnapshotRepository snapshotRepository;
-
+    private final WebClient storeServiceWebClient;
 
     @Override
     @Transactional // Add @transactional
@@ -50,45 +48,48 @@ public class OrderServiceImpl implements OrderService {
         List<OrderItem> orderItems = new java.util.ArrayList<>();
 
         for (OrderItemRequest reqItem : orderRequest.getItems()) {
-            // Get from local db
-            ProductSnapshot productInfo = snapshotRepository.findById(reqItem.getProductId())
-                    .orElseThrow(() -> new IllegalArgumentException("Product not found: " + reqItem.getProductId()));
 
-            // --- Validation ---
-            // 1. Does product belong to this store?
-            if (!productInfo.getStoreId().equals(orderRequest.getStoreId())) {
-                throw new IllegalArgumentException("Product " + productInfo.getName() + " does not belong to store " + orderRequest.getStoreId());
+            try {
+                ReserveStockRequest stockRequest = ReserveStockRequest.builder()
+                        .quantity(reqItem.getQuantity())
+                        .storeId(orderRequest.getStoreId())
+                        .build();
+
+                ProductSnapshotDto productInfo = storeServiceWebClient.post()
+                        .uri("/api/v1/products/" + reqItem.getProductId() + "/reserve")
+                        .bodyValue(stockRequest)
+                        .retrieve()
+                        .bodyToMono(ProductSnapshotDto.class)
+                        .block();
+
+                // Create order item
+                OrderItem item = new OrderItem();
+                item.setProductId(productInfo.getId());
+                item.setProductName(productInfo.getName());
+                item.setPrice(productInfo.getPrice());
+                item.setQuantity(reqItem.getQuantity());
+
+                orderItems.add(item);
+
+                // Calculate total price
+                totalPrice = totalPrice.add(productInfo.getPrice().multiply(BigDecimal.valueOf(reqItem.getQuantity())));
+            } catch (WebClientResponseException e) {
+
+                log.warn("Failed to reserve stock for product {}: {}", reqItem.getProductId(), e.getMessage());
+
+
+                switch (e.getStatusCode()) {
+                    case HttpStatus.NOT_FOUND ->
+                            throw new IllegalArgumentException("Product not found: " + reqItem.getProductId());
+                    case HttpStatus.CONFLICT, HttpStatus.BAD_REQUEST -> {
+                        String error = e.getResponseBodyAsString();
+                        throw new IllegalArgumentException(error);
+                    }
+                    default ->
+                            throw new RuntimeException("Error communicating with store service: " + e.getMessage());
+                }
             }
 
-            // 2. Is product available?
-            if (!productInfo.isAvailable()) {
-                log.error("Product in cart is not available. Product: {}", productInfo.getName());
-                throw new IllegalArgumentException("Product not available: " + productInfo.getName());
-            }
-
-            // 3. Is there enough stock?
-            if (productInfo.getStock() < reqItem.getQuantity()) {
-                log.error("Insufficient stock. Product: {}, Requested: {}, Stock: {}", productInfo.getName(), reqItem.getQuantity(), productInfo.getStock());
-                throw new IllegalArgumentException("Insufficient stock: " + productInfo.getName());
-            }
-            // -- End validation --
-
-            // Create orderitem
-            OrderItem item = new OrderItem();
-            item.setProductId(productInfo.getProductId()); // id name changed
-            item.setProductName(productInfo.getName());
-            item.setPrice(productInfo.getPrice());
-            item.setQuantity(reqItem.getQuantity());
-
-            orderItems.add(item);
-
-            // Calculate total price
-            totalPrice = totalPrice.add(productInfo.getPrice().multiply(BigDecimal.valueOf(reqItem.getQuantity())));
-
-            // (optional but important) Update stock
-            // We could make this async but let's keep it here for now
-            productInfo.setStock(productInfo.getStock() - reqItem.getQuantity());
-            snapshotRepository.save(productInfo);
         }
         log.info("Cart validated locally. Total Price: {}", totalPrice);
 

@@ -1,5 +1,6 @@
 package com.yads.storeservice.controller;
 
+import com.yads.common.dto.ReserveStockRequest;
 import com.yads.storeservice.dto.ProductRequest;
 import com.yads.storeservice.dto.ProductResponse;
 import com.yads.storeservice.services.ProductService;
@@ -119,6 +120,17 @@ public class ProductController {
             @AuthenticationPrincipal Jwt jwt) {
         UUID ownerId = UUID.fromString(jwt.getSubject());
         ProductResponse updatedProduct = productService.toggleAvailability(productId, ownerId);
+        return ResponseEntity.ok(updatedProduct);
+    }
+
+
+    @PostMapping("/api/v1/products/{productId}/reserve")
+    public ResponseEntity<ProductResponse> reserveProductStock(
+            @PathVariable UUID productId,
+            @Valid @RequestBody ReserveStockRequest request,
+            @AuthenticationPrincipal Jwt jwt) {
+
+        ProductResponse updatedProduct = productService.reserveProduct(productId, request);
         return ResponseEntity.ok(updatedProduct);
     }
 }

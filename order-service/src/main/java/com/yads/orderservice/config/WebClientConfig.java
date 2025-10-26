@@ -14,4 +14,9 @@ public class WebClientConfig {
     public WebClient.Builder webClientBuilder() {
         return WebClient.builder();
     }
+
+    @Bean
+    public WebClient storeServiceWebClient(WebClient.Builder builder) {
+        return builder.baseUrl("http://store-service").build();
+    }
 }
