@@ -1,6 +1,6 @@
 package com.yads.orderservice.service;
 
-import com.yads.orderservice.dto.ProductEventDto;
+import com.yads.common.contracts.ProductEventDto;
 import com.yads.orderservice.model.ProductSnapshot;
 import com.yads.orderservice.repository.ProductSnapshotRepository;
 import lombok.RequiredArgsConstructor;

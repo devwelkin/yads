@@ -1,6 +1,6 @@
 package com.yads.storeservice.services;
 
-import com.yads.storeservice.dto.ProductEventDto;
+import com.yads.common.contracts.ProductEventDto;
 import com.yads.storeservice.dto.ProductRequest;
 import com.yads.storeservice.dto.ProductResponse;
 import com.yads.storeservice.exception.AccessDeniedException;
