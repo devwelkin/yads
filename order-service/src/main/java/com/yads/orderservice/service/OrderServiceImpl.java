@@ -2,6 +2,7 @@
 package com.yads.orderservice.service;
 
 import com.yads.common.dto.ReserveStockRequest;
+import com.yads.common.dto.StoreResponse;
 import com.yads.orderservice.dto.OrderItemRequest;
 import com.yads.orderservice.dto.OrderRequest;
 import com.yads.orderservice.dto.OrderResponse;
@@ -127,6 +128,67 @@ public class OrderServiceImpl implements OrderService {
         return orders.stream()
                 .map(orderMapper::toOrderResponse)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional
+    public OrderResponse acceptOrder(UUID orderId, Jwt jwt) {
+        log.info("Accept order process started. Order ID: {}", orderId);
+
+        // 1. Get order from DB
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found with id: " + orderId)); // TODO: proper exception
+
+        // 2. Check order status
+        if (order.getStatus() != OrderStatus.PENDING) {
+            throw new IllegalStateException("Order status must be PENDING to accept. Current status: " + order.getStatus());
+        }
+
+        // 3. Get userId and role from JWT
+        UUID userId = UUID.fromString(jwt.getSubject());
+        List<String> roles = jwt.getClaimAsStringList("roles");
+
+        // 4. Role check - must be STORE_OWNER
+        if (roles == null || !roles.contains("STORE_OWNER")) {
+            throw new RuntimeException("Access Denied: Only store owners can accept orders"); // TODO: proper exception
+        }
+
+        // 5. Critical: Is this store owner the owner of this order's store?
+        UUID storeId = order.getStoreId();
+
+        try {
+            // Get store information from store-service
+            StoreResponse storeResponse = storeServiceWebClient.get()
+                    .uri("/api/v1/stores/" + storeId)
+                    .retrieve()
+                    .bodyToMono(StoreResponse.class)
+                    .block();
+
+            // Compare store owner with user in JWT
+            if (storeResponse == null || !storeResponse.getOwnerId().equals(userId)) {
+                throw new RuntimeException("Access Denied: You are not the owner of this store"); // TODO: proper exception
+            }
+
+        } catch (WebClientResponseException e) {
+            log.error("Error fetching store info for storeId: {}. Error: {}", storeId, e.getMessage());
+            throw new RuntimeException("Error communicating with store service: " + e.getMessage());
+        }
+
+        // 6. All checks complete, update status
+        order.setStatus(OrderStatus.PREPARING);
+        Order updatedOrder = orderRepository.save(order);
+        log.info("Order status updated to PREPARING. Order ID: {}", orderId);
+
+        // 7. Send RabbitMQ event
+        OrderResponse orderResponse = orderMapper.toOrderResponse(updatedOrder);
+        try {
+            rabbitTemplate.convertAndSend("order_events_exchange", "order.preparing", orderResponse);
+            log.info("'order.preparing' event sent to RabbitMQ. Order ID: {}", orderId);
+        } catch (Exception e) {
+            log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}", orderId, e.getMessage());
+        }
+
+        return orderResponse;
     }
 
     @Override

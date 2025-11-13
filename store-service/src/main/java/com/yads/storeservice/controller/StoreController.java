@@ -1,7 +1,7 @@
 package com.yads.storeservice.controller;
 
 import com.yads.storeservice.dto.StoreRequest;
-import com.yads.storeservice.dto.StoreResponse;
+import com.yads.common.dto.StoreResponse;
 import com.yads.storeservice.model.StoreType;
 import com.yads.storeservice.services.StoreService;
 import jakarta.validation.Valid;

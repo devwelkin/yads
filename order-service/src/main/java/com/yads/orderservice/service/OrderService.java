@@ -17,6 +17,31 @@ public interface OrderService {
      */
     OrderResponse createOrder(OrderRequest orderRequest, Jwt jwt);
 
+
+    /**
+     * Accepts a pending order and changes status to PREPARING.
+     * Transition: PENDING -> PREPARING
+     */
+    OrderResponse acceptOrder(UUID orderId, Jwt jwt);
+
+    /**
+     * Marks an order as picked up and changes status to ON_THE_WAY.
+     * Transition: PREPARING -> ON_THE_WAY
+     */
+    OrderResponse pickupOrder(UUID orderId, Jwt jwt);
+
+    /**
+     * Marks an order as delivered and changes status to DELIVERED.
+     * Transition: ON_THE_WAY -> DELIVERED
+     */
+    OrderResponse deliverOrder(UUID orderId, Jwt jwt);
+
+    /**
+     * Cancels an order from any status.
+     * Transition: * -> CANCELLED
+     */
+    OrderResponse cancelOrder(UUID orderId, Jwt jwt);
+
     /**
      * Lists orders for the currently logged-in user.
      */

@@ -1,9 +1,10 @@
 package com.yads.storeservice.mapper;
 
+import com.yads.common.dto.StoreResponse;
 import com.yads.storeservice.dto.StoreRequest;
-import com.yads.storeservice.dto.StoreResponse;
 import com.yads.storeservice.model.Store;
 import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
 import org.mapstruct.MappingTarget;
 import org.mapstruct.NullValuePropertyMappingStrategy;
 import org.mapstruct.ReportingPolicy;
@@ -22,6 +23,7 @@ public interface StoreMapper {
      * @param store the source entity
      * @return a mapped StoreResponse dto
      */
+    @Mapping(target = "storeType", expression = "java(store.getStoreType() != null ? store.getStoreType().name() : null)")
     StoreResponse toStoreResponse(Store store);
 
     /**
