@@ -154,24 +154,8 @@ public class OrderServiceImpl implements OrderService {
         }
 
         // 5. Critical: Is this store owner the owner of this order's store?
-        UUID storeId = order.getStoreId();
-
-        try {
-            // Get store information from store-service
-            StoreResponse storeResponse = storeServiceWebClient.get()
-                    .uri("/api/v1/stores/" + storeId)
-                    .retrieve()
-                    .bodyToMono(StoreResponse.class)
-                    .block();
-
-            // Compare store owner with user in JWT
-            if (storeResponse == null || !storeResponse.getOwnerId().equals(userId)) {
-                throw new RuntimeException("Access Denied: You are not the owner of this store"); // TODO: proper exception
-            }
-
-        } catch (WebClientResponseException e) {
-            log.error("Error fetching store info for storeId: {}. Error: {}", storeId, e.getMessage());
-            throw new RuntimeException("Error communicating with store service: " + e.getMessage());
+        if (!isStoreOwnerOfOrder(order, userId)) {
+            throw new RuntimeException("Access Denied: You are not the owner of this store"); // TODO: proper exception
         }
 
         // 6. All checks complete, update status
@@ -324,22 +308,7 @@ public class OrderServiceImpl implements OrderService {
         if (order.getStatus() == OrderStatus.PENDING) {
             // PENDING: Both customer and store_owner can cancel
             boolean isCustomer = order.getUserId().equals(userId);
-            boolean isStoreOwner = false;
-
-            if (roles != null && roles.contains("STORE_OWNER")) {
-                // Verify this store owner owns the order's store
-                try {
-                    StoreResponse storeResponse = storeServiceWebClient.get()
-                            .uri("/api/v1/stores/" + order.getStoreId())
-                            .retrieve()
-                            .bodyToMono(StoreResponse.class)
-                            .block();
-
-                    isStoreOwner = (storeResponse != null && storeResponse.getOwnerId().equals(userId));
-                } catch (WebClientResponseException e) {
-                    log.error("Error fetching store info for storeId: {}. Error: {}", order.getStoreId(), e.getMessage());
-                }
-            }
+            boolean isStoreOwner = (roles != null && roles.contains("STORE_OWNER") && isStoreOwnerOfOrder(order, userId));
 
             if (!isCustomer && !isStoreOwner) {
                 throw new RuntimeException("Access Denied: Only the customer or store owner can cancel a pending order"); // TODO: proper exception
@@ -347,24 +316,8 @@ public class OrderServiceImpl implements OrderService {
 
         } else if (order.getStatus() == OrderStatus.PREPARING) {
             // PREPARING: Only store_owner can cancel (customer's window has closed)
-            if (roles == null || !roles.contains("STORE_OWNER")) {
+            if (roles == null || !roles.contains("STORE_OWNER") || !isStoreOwnerOfOrder(order, userId)) {
                 throw new RuntimeException("Access Denied: Only the store owner can cancel an order that is being prepared"); // TODO: proper exception
-            }
-
-            // Verify this store owner owns the order's store
-            try {
-                StoreResponse storeResponse = storeServiceWebClient.get()
-                        .uri("/api/v1/stores/" + order.getStoreId())
-                        .retrieve()
-                        .bodyToMono(StoreResponse.class)
-                        .block();
-
-                if (storeResponse == null || !storeResponse.getOwnerId().equals(userId)) {
-                    throw new RuntimeException("Access Denied: You are not the owner of this store"); // TODO: proper exception
-                }
-            } catch (WebClientResponseException e) {
-                log.error("Error fetching store info for storeId: {}. Error: {}", order.getStoreId(), e.getMessage());
-                throw new RuntimeException("Error communicating with store service: " + e.getMessage());
             }
 
         } else if (order.getStatus() == OrderStatus.ON_THE_WAY) {
@@ -400,5 +353,27 @@ public class OrderServiceImpl implements OrderService {
         }
 
         return orderMapper.toOrderResponse(order);
+    }
+
+    /**
+     * Helper method to verify if a user is the owner of the store associated with an order.
+     *
+     * @param order the order containing the storeId
+     * @param userId the user ID to verify
+     * @return true if the user owns the store, false otherwise
+     */
+    private boolean isStoreOwnerOfOrder(Order order, UUID userId) {
+        try {
+            StoreResponse storeResponse = storeServiceWebClient.get()
+                    .uri("/api/v1/stores/" + order.getStoreId())
+                    .retrieve()
+                    .bodyToMono(StoreResponse.class)
+                    .block();
+
+            return (storeResponse != null && storeResponse.getOwnerId().equals(userId));
+        } catch (WebClientResponseException e) {
+            log.error("Error fetching store info for storeId: {}. Error: {}", order.getStoreId(), e.getMessage());
+            return false; // If we can't verify, deny
+        }
     }
 }
