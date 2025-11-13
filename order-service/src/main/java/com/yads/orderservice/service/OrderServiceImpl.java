@@ -176,6 +176,12 @@ public class OrderServiceImpl implements OrderService {
 
         // 6. All checks complete, update status
         order.setStatus(OrderStatus.PREPARING);
+
+        // TODO: Remove this mock when courier-service is built
+        // Temporarily assign a hardcoded courier for testing
+        // In production, courier-service will listen to "order.preparing" event and assign a courier
+        order.setCourierId(UUID.fromString("550e8400-e29b-41d4-a716-446655440001")); // Mock courier UUID
+
         Order updatedOrder = orderRepository.save(order);
         log.info("Order status updated to PREPARING. Order ID: {}", orderId);
 
@@ -184,6 +190,198 @@ public class OrderServiceImpl implements OrderService {
         try {
             rabbitTemplate.convertAndSend("order_events_exchange", "order.preparing", orderResponse);
             log.info("'order.preparing' event sent to RabbitMQ. Order ID: {}", orderId);
+        } catch (Exception e) {
+            log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}", orderId, e.getMessage());
+        }
+
+        return orderResponse;
+    }
+
+    @Override
+    @Transactional
+    public OrderResponse pickupOrder(UUID orderId, Jwt jwt) {
+        log.info("Pickup order process started. Order ID: {}", orderId);
+
+        // 1. Get order from DB
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found with id: " + orderId)); // TODO: proper exception
+
+        // 2. Check order status - must be PREPARING
+        if (order.getStatus() != OrderStatus.PREPARING) {
+            throw new IllegalStateException("Order status must be PREPARING to pickup. Current status: " + order.getStatus());
+        }
+
+        // 3. Get userId and role from JWT
+        UUID userId = UUID.fromString(jwt.getSubject());
+        List<String> roles = jwt.getClaimAsStringList("roles");
+
+        // 4. Role check - must be COURIER
+        if (roles == null || !roles.contains("COURIER")) {
+            throw new RuntimeException("Access Denied: Only couriers can pickup orders"); // TODO: proper exception
+        }
+
+        // 5. Critical: Is this courier assigned to this order?
+        if (order.getCourierId() == null) {
+            // No courier has been assigned yet
+            throw new IllegalStateException("No courier has been assigned to this order yet.");
+        }
+
+        if (!order.getCourierId().equals(userId)) {
+            // Order is not assigned to this courier
+            throw new RuntimeException("Access Denied: You are not assigned to this order"); // TODO: proper exception
+        }
+
+        // 6. All checks complete, update status
+        order.setStatus(OrderStatus.ON_THE_WAY);
+        Order updatedOrder = orderRepository.save(order);
+        log.info("Order status updated to ON_THE_WAY. Order ID: {}", orderId);
+
+        // 7. Send RabbitMQ event
+        OrderResponse orderResponse = orderMapper.toOrderResponse(updatedOrder);
+        try {
+            rabbitTemplate.convertAndSend("order_events_exchange", "order.on_the_way", orderResponse);
+            log.info("'order.on_the_way' event sent to RabbitMQ. Order ID: {}", orderId);
+        } catch (Exception e) {
+            log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}", orderId, e.getMessage());
+        }
+
+        return orderResponse;
+    }
+
+    @Override
+    @Transactional
+    public OrderResponse deliverOrder(UUID orderId, Jwt jwt) {
+        log.info("Deliver order process started. Order ID: {}", orderId);
+
+        // 1. Get order from DB
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found with id: " + orderId)); // TODO: proper exception
+
+        // 2. Check order status - must be ON_THE_WAY
+        if (order.getStatus() != OrderStatus.ON_THE_WAY) {
+            throw new IllegalStateException("Order status must be ON_THE_WAY to deliver. Current status: " + order.getStatus());
+        }
+
+        // 3. Get userId and role from JWT
+        UUID userId = UUID.fromString(jwt.getSubject());
+        List<String> roles = jwt.getClaimAsStringList("roles");
+
+        // 4. Role check - must be COURIER
+        if (roles == null || !roles.contains("COURIER")) {
+            throw new RuntimeException("Access Denied: Only couriers can deliver orders"); // TODO: proper exception
+        }
+
+        // 5. Critical: Is this courier assigned to this order?
+        if (order.getCourierId() == null) {
+            // No courier has been assigned yet
+            throw new IllegalStateException("No courier has been assigned to this order yet.");
+        }
+
+        if (!order.getCourierId().equals(userId)) {
+            // Order is not assigned to this courier
+            throw new RuntimeException("Access Denied: You are not assigned to this order"); // TODO: proper exception
+        }
+
+        // 6. All checks complete, update status
+        order.setStatus(OrderStatus.DELIVERED);
+        Order updatedOrder = orderRepository.save(order);
+        log.info("Order status updated to DELIVERED. Order ID: {}", orderId);
+
+        // 7. Send RabbitMQ event
+        OrderResponse orderResponse = orderMapper.toOrderResponse(updatedOrder);
+        try {
+            rabbitTemplate.convertAndSend("order_events_exchange", "order.delivered", orderResponse);
+            log.info("'order.delivered' event sent to RabbitMQ. Order ID: {}", orderId);
+        } catch (Exception e) {
+            log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}", orderId, e.getMessage());
+        }
+
+        return orderResponse;
+    }
+
+    @Override
+    @Transactional
+    public OrderResponse cancelOrder(UUID orderId, Jwt jwt) {
+        log.info("Cancel order process started. Order ID: {}", orderId);
+
+        // 1. Get order from DB
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found with id: " + orderId)); // TODO: proper exception
+
+        // 2. Check if order is already in a final state
+        if (order.getStatus() == OrderStatus.CANCELLED) {
+            throw new IllegalStateException("Order is already cancelled.");
+        }
+        if (order.getStatus() == OrderStatus.DELIVERED) {
+            throw new IllegalStateException("Cannot cancel a delivered order.");
+        }
+
+        // 3. Get userId and roles from JWT
+        UUID userId = UUID.fromString(jwt.getSubject());
+        List<String> roles = jwt.getClaimAsStringList("roles");
+
+        // 4. Status-dependent authorization logic
+        if (order.getStatus() == OrderStatus.PENDING) {
+            // PENDING: Both customer and store_owner can cancel
+            boolean isCustomer = order.getUserId().equals(userId);
+            boolean isStoreOwner = false;
+
+            if (roles != null && roles.contains("STORE_OWNER")) {
+                // Verify this store owner owns the order's store
+                try {
+                    StoreResponse storeResponse = storeServiceWebClient.get()
+                            .uri("/api/v1/stores/" + order.getStoreId())
+                            .retrieve()
+                            .bodyToMono(StoreResponse.class)
+                            .block();
+
+                    isStoreOwner = (storeResponse != null && storeResponse.getOwnerId().equals(userId));
+                } catch (WebClientResponseException e) {
+                    log.error("Error fetching store info for storeId: {}. Error: {}", order.getStoreId(), e.getMessage());
+                }
+            }
+
+            if (!isCustomer && !isStoreOwner) {
+                throw new RuntimeException("Access Denied: Only the customer or store owner can cancel a pending order"); // TODO: proper exception
+            }
+
+        } else if (order.getStatus() == OrderStatus.PREPARING) {
+            // PREPARING: Only store_owner can cancel (customer's window has closed)
+            if (roles == null || !roles.contains("STORE_OWNER")) {
+                throw new RuntimeException("Access Denied: Only the store owner can cancel an order that is being prepared"); // TODO: proper exception
+            }
+
+            // Verify this store owner owns the order's store
+            try {
+                StoreResponse storeResponse = storeServiceWebClient.get()
+                        .uri("/api/v1/stores/" + order.getStoreId())
+                        .retrieve()
+                        .bodyToMono(StoreResponse.class)
+                        .block();
+
+                if (storeResponse == null || !storeResponse.getOwnerId().equals(userId)) {
+                    throw new RuntimeException("Access Denied: You are not the owner of this store"); // TODO: proper exception
+                }
+            } catch (WebClientResponseException e) {
+                log.error("Error fetching store info for storeId: {}. Error: {}", order.getStoreId(), e.getMessage());
+                throw new RuntimeException("Error communicating with store service: " + e.getMessage());
+            }
+
+        } else if (order.getStatus() == OrderStatus.ON_THE_WAY) {
+            // ON_THE_WAY: Nobody can cancel (too late - courier already has it)
+            throw new IllegalStateException("Cannot cancel an order that is already on the way.");
+        }
+
+        // 5. All checks complete, update status
+        order.setStatus(OrderStatus.CANCELLED);
+        Order updatedOrder = orderRepository.save(order);
+        log.info("Order status updated to CANCELLED. Order ID: {}", orderId);
+
+        // 6. Send RabbitMQ event
+        OrderResponse orderResponse = orderMapper.toOrderResponse(updatedOrder);
+        try {
+            rabbitTemplate.convertAndSend("order_events_exchange", "order.cancelled", orderResponse);
+            log.info("'order.cancelled' event sent to RabbitMQ. Order ID: {}", orderId);
         } catch (Exception e) {
             log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}", orderId, e.getMessage());
         }

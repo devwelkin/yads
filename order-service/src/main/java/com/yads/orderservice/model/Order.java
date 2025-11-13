@@ -24,9 +24,14 @@ public class Order {
     @Column(nullable = false)
     private UUID userId;
 
-    // Store ID where order was placed (from store-service) 
+    // Store ID where order was placed (from store-service)
     @Column(nullable = false)
     private UUID storeId;
+
+    // Courier ID who is assigned to deliver this order (from user-service with courier role)
+    // Can be null initially - assigned when order is accepted by store
+    @Column(name = "courier_id")
+    private UUID courierId;
 
     // Order items (shopping cart)
     // When order is deleted, delete all associated items (CascadeType.ALL)

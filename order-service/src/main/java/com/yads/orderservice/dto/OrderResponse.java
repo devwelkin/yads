@@ -17,6 +17,7 @@ public class OrderResponse {
     private UUID id;
     private UUID userId;
     private UUID storeId;
+    private UUID courierId;
     private List<OrderItemResponse> items;
     private BigDecimal totalPrice;
     private OrderStatus status;
