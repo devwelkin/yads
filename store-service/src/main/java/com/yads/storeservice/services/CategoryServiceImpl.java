@@ -45,6 +45,8 @@ public class CategoryServiceImpl implements CategoryService {
         category.setStore(store);
 
         Category savedCategory = categoryRepository.save(category);
+        log.info("Category created: id={}, name='{}', storeId={}, owner={}",
+                savedCategory.getId(), savedCategory.getName(), storeId, ownerId);
         return categoryMapper.toCategoryResponse(savedCategory);
     }
 
@@ -77,6 +79,8 @@ public class CategoryServiceImpl implements CategoryService {
         categoryMapper.updateCategoryFromRequest(categoryRequest, category);
 
         Category updatedCategory = categoryRepository.save(category);
+        log.info("Category updated: id={}, name='{}', storeId={}, owner={}",
+                categoryId, updatedCategory.getName(), category.getStore().getId(), ownerId);
         return categoryMapper.toCategoryResponse(updatedCategory);
     }
 
@@ -93,7 +97,10 @@ public class CategoryServiceImpl implements CategoryService {
             throw new AccessDeniedException("You are not authorized to delete this category");
         }
 
+        String categoryName = category.getName();
+        UUID storeId = category.getStore().getId();
         categoryRepository.delete(category);
+        log.info("Category deleted: id={}, name='{}', storeId={}, owner={}", categoryId, categoryName, storeId, ownerId);
     }
 
     @Override

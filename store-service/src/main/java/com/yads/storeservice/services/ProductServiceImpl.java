@@ -62,6 +62,10 @@ public class ProductServiceImpl implements ProductService {
         // Save and return
         Product savedProduct = productRepository.save(product);
 
+        log.info("Product created: id={}, name='{}', categoryId={}, storeId={}, price={}, stock={}",
+                savedProduct.getId(), savedProduct.getName(), categoryId,
+                category.getStore().getId(), savedProduct.getPrice(), savedProduct.getStock());
+
         // Publish product creation event
         publishProductUpdate(savedProduct, "product.created");
         return productMapper.toProductResponse(savedProduct);
@@ -87,6 +91,10 @@ public class ProductServiceImpl implements ProductService {
         // Save and return
         Product updatedProduct = productRepository.save(product);
 
+        log.info("Product updated: id={}, name='{}', storeId={}, price={}, stock={}",
+                productId, updatedProduct.getName(), updatedProduct.getCategory().getStore().getId(),
+                updatedProduct.getPrice(), updatedProduct.getStock());
+
         // Publish product update event
         publishProductUpdate(updatedProduct, "product.updated");
         return productMapper.toProductResponse(updatedProduct);
@@ -107,7 +115,12 @@ public class ProductServiceImpl implements ProductService {
         }
 
         // Delete
+        String productName = product.getName();
+        UUID storeId = product.getCategory().getStore().getId();
         productRepository.delete(product);
+
+        log.info("Product deleted: id={}, name='{}', storeId={}, owner={}", productId, productName, storeId, ownerId);
+
         // Publish product deletion event
         rabbitTemplate.convertAndSend(storeEventsExchange.getName(), "product.deleted", productId);
     }
@@ -182,6 +195,7 @@ public class ProductServiceImpl implements ProductService {
         }
 
         // Update stock
+        int oldStock = product.getStock();
         product.setStock(quantity);
 
         // Auto-update availability based on stock
@@ -189,6 +203,9 @@ public class ProductServiceImpl implements ProductService {
 
         // Save and return
         Product updatedProduct = productRepository.save(product);
+
+        log.info("Product stock updated: id={}, name='{}', oldStock={}, newStock={}, available={}",
+                productId, product.getName(), oldStock, quantity, quantity > 0);
 
         // Publish product update event
         publishProductUpdate(updatedProduct, "product.stock.updated");
@@ -210,10 +227,14 @@ public class ProductServiceImpl implements ProductService {
         }
 
         // Toggle availability
+        boolean oldAvailability = product.getIsAvailable();
         product.setIsAvailable(!product.getIsAvailable());
 
         // Save and return
         Product updatedProduct = productRepository.save(product);
+
+        log.info("Product availability toggled: id={}, name='{}', oldAvailability={}, newAvailability={}",
+                productId, product.getName(), oldAvailability, !oldAvailability);
 
         // Publish product update event
         publishProductUpdate(updatedProduct, "product.availability.updated");
@@ -248,6 +269,7 @@ public class ProductServiceImpl implements ProductService {
             );
         }
 
+        int oldStock = product.getStock();
         int newStock = product.getStock() - request.getQuantity();
         product.setStock(newStock);
 
@@ -256,6 +278,9 @@ public class ProductServiceImpl implements ProductService {
         }
 
         Product savedProduct = productRepository.save(product);
+
+        log.info("Product stock reserved: id={}, name='{}', reserved={}, oldStock={}, newStock={}, storeId={}",
+                productId, product.getName(), request.getQuantity(), oldStock, newStock, request.getStoreId());
 
         publishProductUpdate(savedProduct, "product.stock.reserved");
 

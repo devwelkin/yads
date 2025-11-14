@@ -1,9 +1,9 @@
 package com.yads.storeservice.exception;
 
-import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.ResponseStatus;
-
-@ResponseStatus(HttpStatus.FORBIDDEN)
+/**
+ * Exception thrown when a user tries to access/modify a resource they don't own
+ * HTTP Status: 403 Forbidden (set in GlobalExceptionHandler)
+ */
 public class AccessDeniedException extends RuntimeException {
 
     public AccessDeniedException(String message) {

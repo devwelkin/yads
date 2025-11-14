@@ -32,6 +32,7 @@ public class GlobalExceptionHandler {
     /**
      * Handles ResourceNotFoundException (404 - Not Found)
      * Thrown when a requested resource (Store, Category, Product) is not found
+     * Note: Logging is done at service layer with more context
      */
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleResourceNotFoundException(
@@ -39,7 +40,7 @@ public class GlobalExceptionHandler {
             HttpServletRequest request) {
 
         String correlationId = generateCorrelationId();
-        log.warn("[{}] Resource not found: {} - Path: {}", correlationId, ex.getMessage(), request.getRequestURI());
+        // No logging here - service layer has better context
 
         ErrorResponse errorResponse = ErrorResponse.builder()
                 .status(HttpStatus.NOT_FOUND.value())
@@ -57,6 +58,7 @@ public class GlobalExceptionHandler {
     /**
      * Handles AccessDeniedException (403 - Forbidden)
      * Thrown when user tries to access/modify a resource they don't own
+     * Note: Logging is done at service layer with more context (user ID, resource ID, owner ID)
      */
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleAccessDeniedException(
@@ -64,11 +66,7 @@ public class GlobalExceptionHandler {
             HttpServletRequest request) {
 
         String correlationId = generateCorrelationId();
-        log.warn("[{}] Access denied: {} - Path: {} - IP: {}",
-                correlationId,
-                ex.getMessage(),
-                request.getRequestURI(),
-                request.getRemoteAddr());
+        // No logging here - service layer has better context with IDs
 
         ErrorResponse errorResponse = ErrorResponse.builder()
                 .status(HttpStatus.FORBIDDEN.value())
@@ -86,6 +84,7 @@ public class GlobalExceptionHandler {
     /**
      * Handles DuplicateResourceException (409 - Conflict)
      * Thrown when trying to create a resource that already exists
+     * Note: Logging is done at service layer with more context
      */
     @ExceptionHandler(DuplicateResourceException.class)
     public ResponseEntity<ErrorResponse> handleDuplicateResourceException(
@@ -93,7 +92,7 @@ public class GlobalExceptionHandler {
             HttpServletRequest request) {
 
         String correlationId = generateCorrelationId();
-        log.info("[{}] Duplicate resource attempt: {} - Path: {}", correlationId, ex.getMessage(), request.getRequestURI());
+        // No logging here - service layer has better context
 
         ErrorResponse errorResponse = ErrorResponse.builder()
                 .status(HttpStatus.CONFLICT.value())
@@ -145,6 +144,7 @@ public class GlobalExceptionHandler {
     /**
      * Handles InsufficientStockException (422 - Unprocessable Entity)
      * Thrown when there is not enough stock for a product operation
+     * Note: Logging is done at service layer with more context (product ID, available stock, requested quantity)
      */
     @ExceptionHandler(InsufficientStockException.class)
     public ResponseEntity<ErrorResponse> handleInsufficientStockException(
@@ -152,7 +152,7 @@ public class GlobalExceptionHandler {
             HttpServletRequest request) {
 
         String correlationId = generateCorrelationId();
-        log.warn("[{}] Insufficient stock: {} - Path: {}", correlationId, ex.getMessage(), request.getRequestURI());
+        // No logging here - service layer has better context with stock details
 
         ErrorResponse errorResponse = ErrorResponse.builder()
                 .status(HttpStatus.UNPROCESSABLE_ENTITY.value())
@@ -170,6 +170,7 @@ public class GlobalExceptionHandler {
     /**
      * Handles IllegalArgumentException (400 - Bad Request)
      * Thrown when method receives invalid arguments
+     * Note: Logging is done at service layer with more context
      */
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ErrorResponse> handleIllegalArgumentException(
@@ -177,7 +178,7 @@ public class GlobalExceptionHandler {
             HttpServletRequest request) {
 
         String correlationId = generateCorrelationId();
-        log.warn("[{}] Invalid argument: {} - Path: {}", correlationId, ex.getMessage(), request.getRequestURI());
+        // No logging here - service layer has better context
 
         ErrorResponse errorResponse = ErrorResponse.builder()
                 .status(HttpStatus.BAD_REQUEST.value())

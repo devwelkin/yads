@@ -32,6 +32,7 @@ public class StoreServiceImpl implements StoreService{
     public StoreResponse createStore(StoreRequest request, UUID ownerId) {
         // Check if a store with the same name already exists
         if (storeRepository.existsByName(request.getName())) {
+            log.warn("Duplicate store creation attempt: name='{}', owner={}", request.getName(), ownerId);
             throw new DuplicateResourceException("Store with name '" + request.getName() + "' already exists");
         }
 
@@ -41,6 +42,8 @@ public class StoreServiceImpl implements StoreService{
         store.setIsActive(true);
 
         Store savedStore = storeRepository.save(store);
+        log.info("Store created: id={}, name='{}', type={}, owner={}",
+                savedStore.getId(), savedStore.getName(), savedStore.getStoreType(), ownerId);
         return storeMapper.toStoreResponse(savedStore);
     }
 
@@ -98,6 +101,7 @@ public class StoreServiceImpl implements StoreService{
         // Check if the name is being changed and if the new name already exists
         if (request.getName() != null && !request.getName().equals(store.getName())) {
             if (storeRepository.existsByName(request.getName())) {
+                log.warn("Duplicate store name in update: newName='{}', storeId={}", request.getName(), storeId);
                 throw new DuplicateResourceException("Store with name '" + request.getName() + "' already exists");
             }
         }
@@ -105,6 +109,7 @@ public class StoreServiceImpl implements StoreService{
         storeMapper.updateStoreFromRequest(request, store);
         Store updatedStore = storeRepository.save(store);
 
+        log.info("Store updated: id={}, name='{}', owner={}", updatedStore.getId(), updatedStore.getName(), ownerId);
         return storeMapper.toStoreResponse(updatedStore);
     }
 
@@ -120,7 +125,9 @@ public class StoreServiceImpl implements StoreService{
             // Throw generic message to client (security best practice)
             throw new AccessDeniedException("You are not authorized to delete this store");
         }
+        String storeName = store.getName();
         storeRepository.delete(store);
+        log.info("Store deleted: id={}, name='{}', owner={}", storeId, storeName, ownerId);
     }
 
 }
