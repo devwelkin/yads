@@ -58,6 +58,7 @@ public class OrderServiceImpl implements OrderService {
 
                 ProductSnapshotDto productInfo = storeServiceWebClient.post()
                         .uri("/api/v1/products/" + reqItem.getProductId() + "/reserve")
+                        .header("Authorization", "Bearer " + jwt.getTokenValue())
                         .bodyValue(stockRequest)
                         .retrieve()
                         .bodyToMono(ProductSnapshotDto.class)
@@ -154,7 +155,7 @@ public class OrderServiceImpl implements OrderService {
         }
 
         // 5. Critical: Is this store owner the owner of this order's store?
-        if (!isStoreOwnerOfOrder(order, userId)) {
+        if (!isStoreOwnerOfOrder(order, userId, jwt)) {
             throw new RuntimeException("Access Denied: You are not the owner of this store"); // TODO: proper exception
         }
 
@@ -308,7 +309,7 @@ public class OrderServiceImpl implements OrderService {
         if (order.getStatus() == OrderStatus.PENDING) {
             // PENDING: Both customer and store_owner can cancel
             boolean isCustomer = order.getUserId().equals(userId);
-            boolean isStoreOwner = (roles != null && roles.contains("STORE_OWNER") && isStoreOwnerOfOrder(order, userId));
+            boolean isStoreOwner = (roles != null && roles.contains("STORE_OWNER") && isStoreOwnerOfOrder(order, userId, jwt));
 
             if (!isCustomer && !isStoreOwner) {
                 throw new RuntimeException("Access Denied: Only the customer or store owner can cancel a pending order"); // TODO: proper exception
@@ -316,7 +317,7 @@ public class OrderServiceImpl implements OrderService {
 
         } else if (order.getStatus() == OrderStatus.PREPARING) {
             // PREPARING: Only store_owner can cancel (customer's window has closed)
-            if (roles == null || !roles.contains("STORE_OWNER") || !isStoreOwnerOfOrder(order, userId)) {
+            if (roles == null || !roles.contains("STORE_OWNER") || !isStoreOwnerOfOrder(order, userId, jwt)) {
                 throw new RuntimeException("Access Denied: Only the store owner can cancel an order that is being prepared"); // TODO: proper exception
             }
 
@@ -360,12 +361,14 @@ public class OrderServiceImpl implements OrderService {
      *
      * @param order the order containing the storeId
      * @param userId the user ID to verify
+     * @param jwt the JWT token for authentication
      * @return true if the user owns the store, false otherwise
      */
-    private boolean isStoreOwnerOfOrder(Order order, UUID userId) {
+    private boolean isStoreOwnerOfOrder(Order order, UUID userId, Jwt jwt) {
         try {
             StoreResponse storeResponse = storeServiceWebClient.get()
                     .uri("/api/v1/stores/" + order.getStoreId())
+                    .header("Authorization", "Bearer " + jwt.getTokenValue())
                     .retrieve()
                     .bodyToMono(StoreResponse.class)
                     .block();

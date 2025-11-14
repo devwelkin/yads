@@ -43,4 +43,36 @@ public class OrderController {
         OrderResponse response = orderService.getOrderById(orderId, jwt);
         return ResponseEntity.ok(response);
     }
+
+    @PostMapping("/{orderId}/accept")
+    public ResponseEntity<OrderResponse> acceptOrder(
+            @PathVariable UUID orderId,
+            @AuthenticationPrincipal Jwt jwt) {
+        OrderResponse response = orderService.acceptOrder(orderId, jwt);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/{orderId}/pickup")
+    public ResponseEntity<OrderResponse> pickupOrder(
+            @PathVariable UUID orderId,
+            @AuthenticationPrincipal Jwt jwt) {
+        OrderResponse response = orderService.pickupOrder(orderId, jwt);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/{orderId}/deliver")
+    public ResponseEntity<OrderResponse> deliverOrder(
+            @PathVariable UUID orderId,
+            @AuthenticationPrincipal Jwt jwt) {
+        OrderResponse response = orderService.deliverOrder(orderId, jwt);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/{orderId}/cancel")
+    public ResponseEntity<OrderResponse> cancelOrder(
+            @PathVariable UUID orderId,
+            @AuthenticationPrincipal Jwt jwt) {
+        OrderResponse response = orderService.cancelOrder(orderId, jwt);
+        return ResponseEntity.ok(response);
+    }
 }
