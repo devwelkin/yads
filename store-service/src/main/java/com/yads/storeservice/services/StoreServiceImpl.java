@@ -2,9 +2,9 @@ package com.yads.storeservice.services;
 
 import com.yads.storeservice.dto.StoreRequest;
 import com.yads.common.dto.StoreResponse;
-import com.yads.storeservice.exception.AccessDeniedException;
-import com.yads.storeservice.exception.DuplicateResourceException;
-import com.yads.storeservice.exception.ResourceNotFoundException;
+import com.yads.common.exception.AccessDeniedException;
+import com.yads.common.exception.DuplicateResourceException;
+import com.yads.common.exception.ResourceNotFoundException;
 import com.yads.storeservice.mapper.StoreMapper;
 import com.yads.storeservice.model.Store;
 import com.yads.storeservice.model.StoreType;

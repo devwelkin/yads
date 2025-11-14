@@ -2,8 +2,8 @@ package com.yads.storeservice.services;
 
 import com.yads.storeservice.dto.CategoryRequest;
 import com.yads.storeservice.dto.CategoryResponse;
-import com.yads.storeservice.exception.AccessDeniedException;
-import com.yads.storeservice.exception.ResourceNotFoundException;
+import com.yads.common.exception.AccessDeniedException;
+import com.yads.common.exception.ResourceNotFoundException;
 import com.yads.storeservice.mapper.CategoryMapper;
 import com.yads.storeservice.model.Category;
 import com.yads.storeservice.model.Store;
