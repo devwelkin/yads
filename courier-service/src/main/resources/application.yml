@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: courier-service
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8700/realms/yads
+
+  datasource:
+    url: jdbc:postgresql://localhost:5435/courier_service_db
+    username: postgres
+    password: password
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+
+
+
+
+
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: http://localhost:8761/eureka/
+
+
+server:
+  port: 8084
