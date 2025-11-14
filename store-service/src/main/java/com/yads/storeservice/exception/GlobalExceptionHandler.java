@@ -1,7 +1,11 @@
 package com.yads.storeservice.exception;
 
-import com.yads.storeservice.dto.ErrorResponse;
-import com.yads.storeservice.dto.ValidationErrorResponse;
+import com.yads.common.dto.ErrorResponse;
+import com.yads.common.dto.ValidationErrorResponse;
+import com.yads.common.exception.AccessDeniedException;
+import com.yads.common.exception.DuplicateResourceException;
+import com.yads.common.exception.InsufficientStockException;
+import com.yads.common.exception.ResourceNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
