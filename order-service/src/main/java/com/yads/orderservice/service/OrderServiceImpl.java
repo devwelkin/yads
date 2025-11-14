@@ -180,7 +180,7 @@ public class OrderServiceImpl implements OrderService {
         // TODO: Remove this mock when courier-service is built
         // Temporarily assign a hardcoded courier for testing
         // In production, courier-service will listen to "order.preparing" event and assign a courier
-        order.setCourierId(UUID.fromString("40869d03-c4a2-41e7-8363-b3e4b81004df")); // Mock courier UUID
+        order.setCourierId(null); // Mock courier UUID
 
         Order updatedOrder = orderRepository.save(order);
         log.info("Order status updated: orderId={}, from={}, to={}, user={}, storeId={}",
