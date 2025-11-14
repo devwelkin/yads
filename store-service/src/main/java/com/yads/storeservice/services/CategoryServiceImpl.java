@@ -11,6 +11,8 @@ import com.yads.storeservice.repository.CategoryRepository;
 import com.yads.storeservice.repository.StoreRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -20,6 +22,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class CategoryServiceImpl implements CategoryService {
 
+    private static final Logger log = LoggerFactory.getLogger(CategoryServiceImpl.class);
+
     private final CategoryRepository categoryRepository;
     private final StoreRepository storeRepository;
     private final CategoryMapper categoryMapper;
@@ -28,11 +32,13 @@ public class CategoryServiceImpl implements CategoryService {
     public CategoryResponse createCategory(UUID storeId, CategoryRequest categoryRequest, UUID ownerId) {
         // Find store
         Store store = storeRepository.findById(storeId)
-                .orElseThrow(() -> new ResourceNotFoundException("Store not found with id: " + storeId));
+                .orElseThrow(() -> new ResourceNotFoundException("Store not found"));
 
         // Store owner check
         if (!store.getOwnerId().equals(ownerId)) {
-            throw new AccessDeniedException("User is not authorized to create category for this store");
+            log.warn("Access denied: User {} attempted to create category in store {} owned by {}",
+                    ownerId, storeId, store.getOwnerId());
+            throw new AccessDeniedException("You are not authorized to create categories in this store");
         }
 
         Category category = categoryMapper.toCategory(categoryRequest);
@@ -47,7 +53,7 @@ public class CategoryServiceImpl implements CategoryService {
     public List<CategoryResponse> getCategoriesByStore(UUID storeId) {
         // Verify store exists
         storeRepository.findById(storeId)
-                .orElseThrow(() -> new ResourceNotFoundException("Store not found with id: " + storeId));
+                .orElseThrow(() -> new ResourceNotFoundException("Store not found"));
 
         List<Category> categories = categoryRepository.findByStoreId(storeId);
         return categories.stream()
@@ -59,11 +65,13 @@ public class CategoryServiceImpl implements CategoryService {
     @Transactional
     public CategoryResponse updateCategory(UUID categoryId, CategoryRequest categoryRequest, UUID ownerId) {
         Category category = categoryRepository.findById(categoryId)
-                .orElseThrow(() -> new ResourceNotFoundException("Category not found with id: " + categoryId));
+                .orElseThrow(() -> new ResourceNotFoundException("Category not found"));
 
         // Authorization check
         if (!category.getStore().getOwnerId().equals(ownerId)) {
-            throw new AccessDeniedException("User is not authorized to update this category");
+            log.warn("Access denied: User {} attempted to update category {} in store {} owned by {}",
+                    ownerId, categoryId, category.getStore().getId(), category.getStore().getOwnerId());
+            throw new AccessDeniedException("You are not authorized to update this category");
         }
 
         categoryMapper.updateCategoryFromRequest(categoryRequest, category);
@@ -76,11 +84,13 @@ public class CategoryServiceImpl implements CategoryService {
     @Transactional
     public void deleteCategory(UUID categoryId , UUID ownerId) {
         Category category = categoryRepository.findById(categoryId)
-                .orElseThrow(() -> new ResourceNotFoundException("Category not found with id: " + categoryId));
+                .orElseThrow(() -> new ResourceNotFoundException("Category not found"));
 
         // Authorization check
         if (!category.getStore().getOwnerId().equals(ownerId)) {
-            throw new AccessDeniedException("User is not authorized to delete this category");
+            log.warn("Access denied: User {} attempted to delete category {} from store {} owned by {}",
+                    ownerId, categoryId, category.getStore().getId(), category.getStore().getOwnerId());
+            throw new AccessDeniedException("You are not authorized to delete this category");
         }
 
         categoryRepository.delete(category);
@@ -90,6 +100,6 @@ public class CategoryServiceImpl implements CategoryService {
     @Transactional
     public CategoryResponse getCategoryById(UUID categoryId) {
         return categoryMapper.toCategoryResponse(categoryRepository.findById(categoryId)
-                .orElseThrow(() -> new ResourceNotFoundException("Category not found with id: " + categoryId)));
+                .orElseThrow(() -> new ResourceNotFoundException("Category not found")));
     }
 }

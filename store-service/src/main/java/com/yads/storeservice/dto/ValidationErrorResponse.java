@@ -1,6 +1,7 @@
 package com.yads.storeservice.dto;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -13,6 +14,7 @@ import java.util.Map;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonInclude(JsonInclude.Include.NON_NULL) // Don't include null fields in JSON
 public class ValidationErrorResponse {
 
     private int status;
@@ -23,4 +25,10 @@ public class ValidationErrorResponse {
     private LocalDateTime timestamp;
 
     private Map<String, String> validationErrors;
+
+    // Error code for categorizing errors
+    private String errorCode;
+
+    // Correlation ID for tracking requests across services
+    private String correlationId;
 }

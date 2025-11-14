@@ -11,6 +11,8 @@ import com.yads.storeservice.model.StoreType;
 import com.yads.storeservice.repository.StoreRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -19,6 +21,9 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class StoreServiceImpl implements StoreService{
+
+    private static final Logger log = LoggerFactory.getLogger(StoreServiceImpl.class);
+
     private final StoreRepository storeRepository;
     private final StoreMapper storeMapper;
 
@@ -43,7 +48,7 @@ public class StoreServiceImpl implements StoreService{
     @Transactional
     public StoreResponse getStoreById(UUID storeId) {
         Store store = storeRepository.findById(storeId)
-                .orElseThrow(() -> new ResourceNotFoundException("Store not found with id: " + storeId));
+                .orElseThrow(() -> new ResourceNotFoundException("Store not found"));
         return storeMapper.toStoreResponse(store);
     }
 
@@ -81,9 +86,13 @@ public class StoreServiceImpl implements StoreService{
     @Transactional
     public StoreResponse updateStore(UUID storeId, StoreRequest request, UUID ownerId) {
         Store store = storeRepository.findById(storeId)
-                .orElseThrow(() -> new ResourceNotFoundException("Store not found with id: " + storeId));
+                .orElseThrow(() -> new ResourceNotFoundException("Store not found"));
         if (!store.getOwnerId().equals(ownerId)) {
-            throw new AccessDeniedException("User is not authorized to update this store.");
+            // Log detailed information for debugging (not sent to client)
+            log.warn("Access denied: User {} attempted to update store {} owned by {}",
+                    ownerId, storeId, store.getOwnerId());
+            // Throw generic message to client (security best practice)
+            throw new AccessDeniedException("You are not authorized to update this store");
         }
 
         // Check if the name is being changed and if the new name already exists
@@ -103,9 +112,13 @@ public class StoreServiceImpl implements StoreService{
     @Transactional
     public void deleteStore(UUID storeId, UUID ownerId) {
         Store store = storeRepository.findById(storeId)
-                .orElseThrow(() -> new ResourceNotFoundException("Store not found with id: " + storeId));
+                .orElseThrow(() -> new ResourceNotFoundException("Store not found"));
         if (!store.getOwnerId().equals(ownerId)) {
-            throw new AccessDeniedException("User is not authorized to delete this store.");
+            // Log detailed information for debugging (not sent to client)
+            log.warn("Access denied: User {} attempted to delete store {} owned by {}",
+                    ownerId, storeId, store.getOwnerId());
+            // Throw generic message to client (security best practice)
+            throw new AccessDeniedException("You are not authorized to delete this store");
         }
         storeRepository.delete(store);
     }
