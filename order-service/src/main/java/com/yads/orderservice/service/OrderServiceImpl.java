@@ -24,6 +24,7 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -147,10 +148,10 @@ public class OrderServiceImpl implements OrderService {
 
         // 3. Get userId and role from JWT
         UUID userId = UUID.fromString(jwt.getSubject());
-        List<String> roles = jwt.getClaimAsStringList("roles");
+        List<String> roles = extractClientRoles(jwt);
 
         // 4. Role check - must be STORE_OWNER
-        if (roles == null || !roles.contains("STORE_OWNER")) {
+        if (!roles.contains("STORE_OWNER")) {
             throw new RuntimeException("Access Denied: Only store owners can accept orders"); // TODO: proper exception
         }
 
@@ -165,7 +166,7 @@ public class OrderServiceImpl implements OrderService {
         // TODO: Remove this mock when courier-service is built
         // Temporarily assign a hardcoded courier for testing
         // In production, courier-service will listen to "order.preparing" event and assign a courier
-        order.setCourierId(UUID.fromString("550e8400-e29b-41d4-a716-446655440001")); // Mock courier UUID
+        order.setCourierId(UUID.fromString("40869d03-c4a2-41e7-8363-b3e4b81004df")); // Mock courier UUID
 
         Order updatedOrder = orderRepository.save(order);
         log.info("Order status updated to PREPARING. Order ID: {}", orderId);
@@ -198,10 +199,10 @@ public class OrderServiceImpl implements OrderService {
 
         // 3. Get userId and role from JWT
         UUID userId = UUID.fromString(jwt.getSubject());
-        List<String> roles = jwt.getClaimAsStringList("roles");
+        List<String> roles = extractClientRoles(jwt);
 
         // 4. Role check - must be COURIER
-        if (roles == null || !roles.contains("COURIER")) {
+        if (!roles.contains("COURIER")) {
             throw new RuntimeException("Access Denied: Only couriers can pickup orders"); // TODO: proper exception
         }
 
@@ -249,10 +250,10 @@ public class OrderServiceImpl implements OrderService {
 
         // 3. Get userId and role from JWT
         UUID userId = UUID.fromString(jwt.getSubject());
-        List<String> roles = jwt.getClaimAsStringList("roles");
+        List<String> roles = extractClientRoles(jwt);
 
         // 4. Role check - must be COURIER
-        if (roles == null || !roles.contains("COURIER")) {
+        if (!roles.contains("COURIER")) {
             throw new RuntimeException("Access Denied: Only couriers can deliver orders"); // TODO: proper exception
         }
 
@@ -303,13 +304,13 @@ public class OrderServiceImpl implements OrderService {
 
         // 3. Get userId and roles from JWT
         UUID userId = UUID.fromString(jwt.getSubject());
-        List<String> roles = jwt.getClaimAsStringList("roles");
+        List<String> roles = extractClientRoles(jwt);
 
         // 4. Status-dependent authorization logic
         if (order.getStatus() == OrderStatus.PENDING) {
             // PENDING: Both customer and store_owner can cancel
             boolean isCustomer = order.getUserId().equals(userId);
-            boolean isStoreOwner = (roles != null && roles.contains("STORE_OWNER") && isStoreOwnerOfOrder(order, userId, jwt));
+            boolean isStoreOwner = (roles.contains("STORE_OWNER") && isStoreOwnerOfOrder(order, userId, jwt));
 
             if (!isCustomer && !isStoreOwner) {
                 throw new RuntimeException("Access Denied: Only the customer or store owner can cancel a pending order"); // TODO: proper exception
@@ -317,7 +318,7 @@ public class OrderServiceImpl implements OrderService {
 
         } else if (order.getStatus() == OrderStatus.PREPARING) {
             // PREPARING: Only store_owner can cancel (customer's window has closed)
-            if (roles == null || !roles.contains("STORE_OWNER") || !isStoreOwnerOfOrder(order, userId, jwt)) {
+            if (!roles.contains("STORE_OWNER") || !isStoreOwnerOfOrder(order, userId, jwt)) {
                 throw new RuntimeException("Access Denied: Only the store owner can cancel an order that is being prepared"); // TODO: proper exception
             }
 
@@ -354,6 +355,33 @@ public class OrderServiceImpl implements OrderService {
         }
 
         return orderMapper.toOrderResponse(order);
+    }
+
+    /**
+     * Helper method to extract client-specific roles from JWT.
+     * Keycloak stores client roles in: resource_access.{client-id}.roles
+     *
+     * @param jwt the JWT token
+     * @return list of roles for yads-backend client, or empty list if not found
+     */
+    private List<String> extractClientRoles(Jwt jwt) {
+        try {
+            Map<String, Object> resourceAccess = jwt.getClaim("resource_access");
+            if (resourceAccess == null) {
+                return List.of();
+            }
+
+            Map<String, Object> yadsBackend = (Map<String, Object>) resourceAccess.get("yads-backend");
+            if (yadsBackend == null) {
+                return List.of();
+            }
+
+            List<String> roles = (List<String>) yadsBackend.get("roles");
+            return roles != null ? roles : List.of();
+        } catch (Exception e) {
+            log.error("Error extracting client roles from JWT: {}", e.getMessage());
+            return List.of();
+        }
     }
 
     /**
