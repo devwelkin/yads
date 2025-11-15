@@ -287,6 +287,42 @@ public class ProductServiceImpl implements ProductService {
         return productMapper.toProductResponse(savedProduct);
     }
 
+    @Override
+    @Transactional
+    public void restoreStock(UUID productId, Integer quantity, UUID storeId) {
+        log.info("Restoring stock: productId={}, quantity={}, storeId={}", productId, quantity, storeId);
+
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> {
+                    log.warn("Product not found during stock restoration: productId={}", productId);
+                    return new ResourceNotFoundException("Product not found");
+                });
+
+        // Store control (optional - for validation)
+        if (!product.getCategory().getStore().getId().equals(storeId)) {
+            log.warn("Invalid store during restoration: Product {} belongs to store {} but request specified store {}",
+                    productId, product.getCategory().getStore().getId(), storeId);
+            throw new IllegalArgumentException("Product does not belong to the specified store");
+        }
+
+        int oldStock = product.getStock();
+        int newStock = oldStock + quantity;
+        product.setStock(newStock);
+
+        // If product was unavailable due to 0 stock, make it available again
+        if (oldStock == 0 && newStock > 0) {
+            product.setIsAvailable(true);
+            log.info("Product availability restored: productId={}, name='{}'", productId, product.getName());
+        }
+
+        Product savedProduct = productRepository.save(product);
+
+        log.info("Product stock restored: id={}, name='{}', restored={}, oldStock={}, newStock={}, storeId={}",
+                productId, product.getName(), quantity, oldStock, newStock, storeId);
+
+        publishProductUpdate(savedProduct, "product.stock.restored");
+    }
+
     // Helper method for publishing product update events
     private void publishProductUpdate(Product product, String routingKey) {
         ProductEventDto eventDto = ProductEventDto.builder()

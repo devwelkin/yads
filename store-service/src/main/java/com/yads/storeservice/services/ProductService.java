@@ -31,5 +31,7 @@ public interface ProductService {
     // Reserve product and update stock
     ProductResponse reserveProduct(UUID productId, ReserveStockRequest request);
 
+    // Restore stock (called when order is cancelled)
+    void restoreStock(UUID productId, Integer quantity, UUID storeId);
 
 }

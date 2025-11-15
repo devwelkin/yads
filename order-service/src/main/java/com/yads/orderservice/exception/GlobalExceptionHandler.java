@@ -3,6 +3,7 @@ package com.yads.orderservice.exception;
 import com.yads.common.dto.ErrorResponse;
 import com.yads.common.dto.ValidationErrorResponse;
 import com.yads.common.exception.AccessDeniedException;
+import com.yads.common.exception.InsufficientStockException;
 import com.yads.common.exception.ResourceNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -104,6 +105,32 @@ public class GlobalExceptionHandler {
                 .path(request.getRequestURI())
                 .timestamp(LocalDateTime.now())
                 .errorCode("INVALID_ORDER_STATE")
+                .correlationId(correlationId)
+                .build();
+
+        return new ResponseEntity<>(errorResponse, HttpStatus.UNPROCESSABLE_ENTITY);
+    }
+
+    /**
+     * Handles InsufficientStockException (422 - Unprocessable Entity)
+     * Thrown when trying to accept an order but there is insufficient stock
+     * Note: Logging is done at service layer with more context
+     */
+    @ExceptionHandler(InsufficientStockException.class)
+    public ResponseEntity<ErrorResponse> handleInsufficientStockException(
+            InsufficientStockException ex,
+            HttpServletRequest request) {
+
+        String correlationId = generateCorrelationId();
+        // No logging here - service layer has better context with product details
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .status(HttpStatus.UNPROCESSABLE_ENTITY.value())
+                .error(HttpStatus.UNPROCESSABLE_ENTITY.getReasonPhrase())
+                .message(ex.getMessage())
+                .path(request.getRequestURI())
+                .timestamp(LocalDateTime.now())
+                .errorCode("INSUFFICIENT_STOCK")
                 .correlationId(correlationId)
                 .build();
 

@@ -10,6 +10,7 @@ import com.yads.orderservice.dto.OrderItemRequest;
 import com.yads.orderservice.dto.OrderRequest;
 import com.yads.orderservice.dto.OrderResponse;
 import com.yads.orderservice.dto.ProductSnapshotDto;
+import com.yads.common.exception.InsufficientStockException;
 import com.yads.orderservice.exception.ExternalServiceException;
 import com.yads.orderservice.exception.InvalidOrderStateException;
 import com.yads.orderservice.mapper.OrderMapper;
@@ -52,25 +53,30 @@ public class OrderServiceImpl implements OrderService {
         UUID userId = UUID.fromString(jwt.getSubject());
 
 
-        // --- Step 2: Validate cart
+        // --- Step 2: Validate cart (NO STOCK RESERVATION YET - that happens in acceptOrder)
         BigDecimal totalPrice = BigDecimal.ZERO;
         List<OrderItem> orderItems = new java.util.ArrayList<>();
 
         for (OrderItemRequest reqItem : orderRequest.getItems()) {
 
             try {
-                ReserveStockRequest stockRequest = ReserveStockRequest.builder()
-                        .quantity(reqItem.getQuantity())
-                        .storeId(orderRequest.getStoreId())
-                        .build();
-
-                ProductSnapshotDto productInfo = storeServiceWebClient.post()
-                        .uri("/api/v1/products/" + reqItem.getProductId() + "/reserve")
+                // Simply fetch product info WITHOUT reserving stock
+                // Stock reservation will happen when store owner accepts the order
+                ProductSnapshotDto productInfo = storeServiceWebClient.get()
+                        .uri("/api/v1/products/" + reqItem.getProductId())
                         .header("Authorization", "Bearer " + jwt.getTokenValue())
-                        .bodyValue(stockRequest)
                         .retrieve()
                         .bodyToMono(ProductSnapshotDto.class)
                         .block();
+
+                // Basic validation: product must be available
+                if (productInfo == null) {
+                    throw new ResourceNotFoundException("Product not found: " + reqItem.getProductId());
+                }
+
+                if (!productInfo.isAvailable()) {
+                    throw new InvalidOrderStateException("Product is not available: " + reqItem.getProductId());
+                }
 
                 // Create order item
                 OrderItem item = new OrderItem();
@@ -84,14 +90,12 @@ public class OrderServiceImpl implements OrderService {
                 // Calculate total price
                 totalPrice = totalPrice.add(productInfo.getPrice().multiply(BigDecimal.valueOf(reqItem.getQuantity())));
             } catch (WebClientResponseException e) {
-                log.error("Stock reservation failed: productId={}, storeId={}, status={}, message={}",
+                log.error("Product fetch failed: productId={}, storeId={}, status={}, message={}",
                         reqItem.getProductId(), orderRequest.getStoreId(),
                         e.getStatusCode(), e.getResponseBodyAsString());
 
                 if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
                     throw new ResourceNotFoundException("Product not found: " + reqItem.getProductId());
-                } else if (e.getStatusCode() == HttpStatus.UNPROCESSABLE_ENTITY) {
-                    throw new InvalidOrderStateException("Insufficient stock for product: " + reqItem.getProductId());
                 } else if (e.getStatusCode() == HttpStatus.CONFLICT || e.getStatusCode() == HttpStatus.BAD_REQUEST) {
                     String error = e.getResponseBodyAsString();
                     throw new IllegalArgumentException(error);
@@ -101,7 +105,7 @@ public class OrderServiceImpl implements OrderService {
             }
 
         }
-        log.info("Cart validated locally. Total Price: {}", totalPrice);
+        log.info("Cart validated (no stock reserved yet). Total Price: {}", totalPrice);
 
         // --- Step 3: Save order
         Order order = new Order();
@@ -175,7 +179,51 @@ public class OrderServiceImpl implements OrderService {
         log.info("Store ownership verified: userId={}, storeId={}, storeName={}",
                 userId, order.getStoreId(), storeResponse.getName());
 
-        // 6. All checks complete, update status and snapshot pickup address
+        // 6. CRITICAL: Now reserve stock for all items (THIS IS THE KEY CHANGE)
+        // If stock is insufficient, this will throw InsufficientStockException
+        // and the order will remain PENDING
+        log.info("Attempting to reserve stock for order: orderId={}, itemCount={}", orderId, order.getItems().size());
+        for (OrderItem item : order.getItems()) {
+            try {
+                ReserveStockRequest stockRequest = ReserveStockRequest.builder()
+                        .quantity(item.getQuantity())
+                        .storeId(order.getStoreId())
+                        .build();
+
+                ProductSnapshotDto productInfo = storeServiceWebClient.post()
+                        .uri("/api/v1/products/" + item.getProductId() + "/reserve")
+                        .header("Authorization", "Bearer " + jwt.getTokenValue())
+                        .bodyValue(stockRequest)
+                        .retrieve()
+                        .bodyToMono(ProductSnapshotDto.class)
+                        .block();
+
+                log.info("Stock reserved successfully: orderId={}, productId={}, productName={}, quantity={}",
+                        orderId, item.getProductId(), item.getProductName(), item.getQuantity());
+
+            } catch (WebClientResponseException e) {
+                log.error("Stock reservation failed during accept: orderId={}, productId={}, productName={}, status={}, message={}",
+                        orderId, item.getProductId(), item.getProductName(),
+                        e.getStatusCode(), e.getResponseBodyAsString());
+
+                if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
+                    throw new ResourceNotFoundException("Product not found: " + item.getProductName());
+                } else if (e.getStatusCode() == HttpStatus.UNPROCESSABLE_ENTITY) {
+                    // This is the key case: insufficient stock
+                    throw new InsufficientStockException(
+                            "Insufficient stock for product: " + item.getProductName() +
+                            ". Cannot accept order. Please cancel it.");
+                } else if (e.getStatusCode() == HttpStatus.CONFLICT || e.getStatusCode() == HttpStatus.BAD_REQUEST) {
+                    String error = e.getResponseBodyAsString();
+                    throw new IllegalArgumentException("Failed to reserve stock: " + error);
+                } else {
+                    throw new ExternalServiceException("Store service unavailable during stock reservation: " + e.getMessage());
+                }
+            }
+        }
+        log.info("All stock reservations completed successfully: orderId={}", orderId);
+
+        // 7. All checks complete, update status and snapshot pickup address
         OrderStatus oldStatus = order.getStatus();
         order.setStatus(OrderStatus.PREPARING);
 
@@ -201,7 +249,7 @@ public class OrderServiceImpl implements OrderService {
         log.info("Order status updated: orderId={}, from={}, to={}, user={}, storeId={}",
                 orderId, oldStatus, OrderStatus.PREPARING, userId, order.getStoreId());
 
-        // 7. Send RabbitMQ event
+        // 8. Send RabbitMQ event
         OrderAssignmentContract contract = OrderAssignmentContract.builder()
                 .orderId(updatedOrder.getId())
                 .storeId(updatedOrder.getStoreId())
@@ -401,14 +449,55 @@ public class OrderServiceImpl implements OrderService {
             throw new InvalidOrderStateException("Cannot cancel an order that is already on the way.");
         }
 
-        // 5. All checks complete, update status
-        OrderStatus oldStatus = order.getStatus();
+        // 5. CRITICAL: Restore stock if order was accepted (PREPARING or ON_THE_WAY)
+        // This is SYNCHRONOUS to ensure consistency (no zombie stock)
+        // If stock restoration fails, the entire cancellation fails
+        if (oldStatus == OrderStatus.PREPARING || oldStatus == OrderStatus.ON_THE_WAY) {
+            log.info("Order was accepted (status={}), restoring stock synchronously: orderId={}", oldStatus, orderId);
+
+            for (OrderItem item : order.getItems()) {
+                try {
+                    ReserveStockRequest restoreRequest = ReserveStockRequest.builder()
+                            .quantity(item.getQuantity())
+                            .storeId(order.getStoreId())
+                            .build();
+
+                    storeServiceWebClient.post()
+                            .uri("/api/v1/products/" + item.getProductId() + "/restore")
+                            .header("Authorization", "Bearer " + jwt.getTokenValue())
+                            .bodyValue(restoreRequest)
+                            .retrieve()
+                            .bodyToMono(Void.class)
+                            .block();
+
+                    log.info("Stock restored successfully: orderId={}, productId={}, productName={}, quantity={}",
+                            orderId, item.getProductId(), item.getProductName(), item.getQuantity());
+
+                } catch (WebClientResponseException e) {
+                    log.error("Stock restoration FAILED: orderId={}, productId={}, productName={}, status={}, message={}",
+                            orderId, item.getProductId(), item.getProductName(),
+                            e.getStatusCode(), e.getResponseBodyAsString());
+
+                    // CRITICAL: If stock restoration fails, ABORT the cancellation
+                    // This ensures consistency - order remains in its current state
+                    throw new ExternalServiceException(
+                            "Cannot cancel order: Failed to restore stock for product " + item.getProductName() +
+                            ". Please try again later or contact support.");
+                }
+            }
+
+            log.info("All stock restorations completed successfully: orderId={}", orderId);
+        } else {
+            log.info("Order was PENDING, no stock restoration needed: orderId={}, status={}", orderId, oldStatus);
+        }
+
+        // 6. All checks complete, update status
         order.setStatus(OrderStatus.CANCELLED);
         Order updatedOrder = orderRepository.save(order);
         log.info("Order status updated: orderId={}, from={}, to={}, cancelledBy={}",
                 orderId, oldStatus, OrderStatus.CANCELLED, userId);
 
-        // 6. Send RabbitMQ event
+        // 7. Send RabbitMQ event
         OrderResponse orderResponse = orderMapper.toOrderResponse(updatedOrder);
         try {
             rabbitTemplate.convertAndSend("order_events_exchange", "order.cancelled", orderResponse);

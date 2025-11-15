@@ -11,7 +11,7 @@ public class AmqpConfig {
 
     @Bean
     public TopicExchange storeEventsExchange() {
-        // New exchange for store-related events
+        // Exchange for store-related events (product updates)
         return new TopicExchange("store_events_exchange");
     }
 
