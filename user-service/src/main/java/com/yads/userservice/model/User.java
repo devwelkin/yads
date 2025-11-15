@@ -1,6 +1,6 @@
 package com.yads.userservice.model;
 
-import com.yads.common.mode;
+import com.yads.common.model.Address;
 import jakarta.persistence.*;
 import lombok.Data;
 import org.hibernate.annotations.CreationTimestamp;

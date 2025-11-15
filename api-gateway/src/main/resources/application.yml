@@ -36,6 +36,13 @@ spring:
               filters:
                 - StripPrefix=1
 
+            - id: courier-service-route
+              uri: lb://COURIER-SERVICE
+              predicates:
+                - Path=/courier-service/**
+              filters:
+                - StripPrefix=1
+
 eureka:
   client:
     serviceUrl:
