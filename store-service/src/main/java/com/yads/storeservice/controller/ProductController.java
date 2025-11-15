@@ -1,5 +1,7 @@
 package com.yads.storeservice.controller;
 
+import com.yads.common.dto.BatchReserveStockRequest;
+import com.yads.common.dto.BatchReserveStockResponse;
 import com.yads.common.dto.ReserveStockRequest;
 import com.yads.storeservice.dto.ProductRequest;
 import com.yads.storeservice.dto.ProductResponse;
@@ -143,6 +145,33 @@ public class ProductController {
             @AuthenticationPrincipal Jwt jwt) {
 
         productService.restoreStock(productId, request.getQuantity(), request.getStoreId());
+        return ResponseEntity.ok().build();
+    }
+
+    /**
+     * BATCH OPERATIONS - CRITICAL for preventing N+1 problem
+     * These endpoints handle multiple products in a single transaction
+     */
+
+    // Batch reserve stock (called when order is accepted)
+    // All operations happen in a single transaction - if any fails, all rollback
+    @PostMapping("/api/v1/products/batch-reserve")
+    public ResponseEntity<List<BatchReserveStockResponse>> batchReserveStock(
+            @Valid @RequestBody BatchReserveStockRequest request,
+            @AuthenticationPrincipal Jwt jwt) {
+
+        List<BatchReserveStockResponse> responses = productService.batchReserveStock(request);
+        return ResponseEntity.ok(responses);
+    }
+
+    // Batch restore stock (called when order is cancelled)
+    // All operations happen in a single transaction - if any fails, all rollback
+    @PostMapping("/api/v1/products/batch-restore")
+    public ResponseEntity<Void> batchRestoreStock(
+            @Valid @RequestBody BatchReserveStockRequest request,
+            @AuthenticationPrincipal Jwt jwt) {
+
+        productService.batchRestoreStock(request);
         return ResponseEntity.ok().build();
     }
 }

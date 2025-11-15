@@ -2,23 +2,26 @@
 package com.yads.orderservice.service;
 
 import com.yads.common.contracts.OrderAssignmentContract;
-import com.yads.common.dto.ReserveStockRequest;
+import com.yads.common.dto.BatchReserveItem;
+import com.yads.common.dto.BatchReserveStockRequest;
+import com.yads.common.dto.BatchReserveStockResponse;
 import com.yads.common.dto.StoreResponse;
 import com.yads.common.exception.AccessDeniedException;
+import com.yads.common.exception.InsufficientStockException;
 import com.yads.common.exception.ResourceNotFoundException;
+import com.yads.common.model.Address;
 import com.yads.orderservice.dto.OrderItemRequest;
 import com.yads.orderservice.dto.OrderRequest;
 import com.yads.orderservice.dto.OrderResponse;
-import com.yads.orderservice.dto.ProductSnapshotDto;
-import com.yads.common.exception.InsufficientStockException;
 import com.yads.orderservice.exception.ExternalServiceException;
 import com.yads.orderservice.exception.InvalidOrderStateException;
 import com.yads.orderservice.mapper.OrderMapper;
-import com.yads.common.model.Address;
 import com.yads.orderservice.model.Order;
 import com.yads.orderservice.model.OrderItem;
 import com.yads.orderservice.model.OrderStatus;
+import com.yads.orderservice.model.ProductSnapshot;
 import com.yads.orderservice.repository.OrderRepository;
+import com.yads.orderservice.repository.ProductSnapshotRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -45,6 +48,7 @@ public class OrderServiceImpl implements OrderService {
     private final OrderMapper orderMapper;
     private final RabbitTemplate rabbitTemplate;
     private final WebClient storeServiceWebClient;
+    private final ProductSnapshotRepository productSnapshotRepository;
 
     @Override
     @Transactional // Add @transactional
@@ -52,60 +56,66 @@ public class OrderServiceImpl implements OrderService {
         log.info("Order creation process started. Store ID: {}", orderRequest.getStoreId());
         UUID userId = UUID.fromString(jwt.getSubject());
 
-
-        // --- Step 2: Validate cart (NO STOCK RESERVATION YET - that happens in acceptOrder)
+        // --- Step 2: Validate cart using LOCAL ProductSnapshot cache (NO N+1!)
+        // CRITICAL FIX: Use product_snapshots table instead of calling store-service N times
         BigDecimal totalPrice = BigDecimal.ZERO;
         List<OrderItem> orderItems = new java.util.ArrayList<>();
 
+        // Collect all product IDs first
+        List<UUID> productIds = orderRequest.getItems().stream()
+                .map(OrderItemRequest::getProductId)
+                .collect(Collectors.toList());
+
+        // SINGLE DATABASE QUERY to fetch all products at once (NO N+1!)
+        Map<UUID, ProductSnapshot> productSnapshots = productSnapshotRepository
+                .findAllById(productIds).stream()
+                .collect(Collectors.toMap(
+                        ProductSnapshot::getProductId,
+                        snapshot -> snapshot
+                ));
+
+        log.info("Fetched {} product snapshots from local cache in a SINGLE query (no N+1!)", productSnapshots.size());
+
+        // Now validate each item using the cached snapshots
         for (OrderItemRequest reqItem : orderRequest.getItems()) {
+            ProductSnapshot productSnapshot = productSnapshots.get(reqItem.getProductId());
 
-            try {
-                // Simply fetch product info WITHOUT reserving stock
-                // Stock reservation will happen when store owner accepts the order
-                ProductSnapshotDto productInfo = storeServiceWebClient.get()
-                        .uri("/api/v1/products/" + reqItem.getProductId())
-                        .header("Authorization", "Bearer " + jwt.getTokenValue())
-                        .retrieve()
-                        .bodyToMono(ProductSnapshotDto.class)
-                        .block();
-
-                // Basic validation: product must be available
-                if (productInfo == null) {
-                    throw new ResourceNotFoundException("Product not found: " + reqItem.getProductId());
-                }
-
-                if (!productInfo.isAvailable()) {
-                    throw new InvalidOrderStateException("Product is not available: " + reqItem.getProductId());
-                }
-
-                // Create order item
-                OrderItem item = new OrderItem();
-                item.setProductId(productInfo.getId());
-                item.setProductName(productInfo.getName());
-                item.setPrice(productInfo.getPrice());
-                item.setQuantity(reqItem.getQuantity());
-
-                orderItems.add(item);
-
-                // Calculate total price
-                totalPrice = totalPrice.add(productInfo.getPrice().multiply(BigDecimal.valueOf(reqItem.getQuantity())));
-            } catch (WebClientResponseException e) {
-                log.error("Product fetch failed: productId={}, storeId={}, status={}, message={}",
-                        reqItem.getProductId(), orderRequest.getStoreId(),
-                        e.getStatusCode(), e.getResponseBodyAsString());
-
-                if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
-                    throw new ResourceNotFoundException("Product not found: " + reqItem.getProductId());
-                } else if (e.getStatusCode() == HttpStatus.CONFLICT || e.getStatusCode() == HttpStatus.BAD_REQUEST) {
-                    String error = e.getResponseBodyAsString();
-                    throw new IllegalArgumentException(error);
-                } else {
-                    throw new ExternalServiceException("Store service unavailable: " + e.getMessage());
-                }
+            // Basic validation: product must exist in our cache
+            if (productSnapshot == null) {
+                log.warn("Product not found in local cache: productId={}, storeId={}",
+                        reqItem.getProductId(), orderRequest.getStoreId());
+                throw new ResourceNotFoundException("Product not found: " + reqItem.getProductId());
             }
 
+            // Validate product belongs to the correct store
+            if (!productSnapshot.getStoreId().equals(orderRequest.getStoreId())) {
+                log.warn("Product belongs to different store: productId={}, expectedStoreId={}, actualStoreId={}",
+                        reqItem.getProductId(), orderRequest.getStoreId(), productSnapshot.getStoreId());
+                throw new IllegalArgumentException("Product " + reqItem.getProductId() +
+                        " does not belong to store " + orderRequest.getStoreId());
+            }
+
+            // Validate availability
+            if (!productSnapshot.isAvailable()) {
+                log.warn("Product not available: productId={}, name={}",
+                        reqItem.getProductId(), productSnapshot.getName());
+                throw new InvalidOrderStateException("Product is not available: " + productSnapshot.getName());
+            }
+
+            // Create order item using cached snapshot data
+            OrderItem item = new OrderItem();
+            item.setProductId(productSnapshot.getProductId());
+            item.setProductName(productSnapshot.getName());
+            item.setPrice(productSnapshot.getPrice());
+            item.setQuantity(reqItem.getQuantity());
+
+            orderItems.add(item);
+
+            // Calculate total price
+            totalPrice = totalPrice.add(productSnapshot.getPrice().multiply(BigDecimal.valueOf(reqItem.getQuantity())));
         }
-        log.info("Cart validated (no stock reserved yet). Total Price: {}", totalPrice);
+
+        log.info("Cart validated using local cache (no stock reserved yet). Total Price: {}", totalPrice);
 
         // --- Step 3: Save order
         Order order = new Order();
@@ -179,49 +189,71 @@ public class OrderServiceImpl implements OrderService {
         log.info("Store ownership verified: userId={}, storeId={}, storeName={}",
                 userId, order.getStoreId(), storeResponse.getName());
 
-        // 6. CRITICAL: Now reserve stock for all items (THIS IS THE KEY CHANGE)
-        // If stock is insufficient, this will throw InsufficientStockException
-        // and the order will remain PENDING
+        // 6. CRITICAL: Reserve stock for ALL items in a SINGLE batch call
+        // FIXED: NO MORE N+1! Single HTTP call with automatic transaction + saga compensation
+        // If ANY product fails, store-service rolls back ALL reservations automatically
         log.info("Attempting to reserve stock for order: orderId={}, itemCount={}", orderId, order.getItems().size());
-        for (OrderItem item : order.getItems()) {
-            try {
-                ReserveStockRequest stockRequest = ReserveStockRequest.builder()
+
+        // Build batch request
+        List<BatchReserveItem> batchItems = order.getItems().stream()
+                .map(item -> BatchReserveItem.builder()
+                        .productId(item.getProductId())
                         .quantity(item.getQuantity())
-                        .storeId(order.getStoreId())
-                        .build();
+                        .build())
+                .collect(Collectors.toList());
 
-                ProductSnapshotDto productInfo = storeServiceWebClient.post()
-                        .uri("/api/v1/products/" + item.getProductId() + "/reserve")
-                        .header("Authorization", "Bearer " + jwt.getTokenValue())
-                        .bodyValue(stockRequest)
-                        .retrieve()
-                        .bodyToMono(ProductSnapshotDto.class)
-                        .block();
+        BatchReserveStockRequest batchRequest = BatchReserveStockRequest.builder()
+                .storeId(order.getStoreId())
+                .items(batchItems)
+                .build();
 
-                log.info("Stock reserved successfully: orderId={}, productId={}, productName={}, quantity={}",
-                        orderId, item.getProductId(), item.getProductName(), item.getQuantity());
+        try {
+            // SINGLE HTTP CALL to reserve all products (no N+1!)
+            // Store-service handles this in a single transaction
+            // If any item fails, the entire transaction rolls back - perfect saga compensation!
+            List<BatchReserveStockResponse> responses = storeServiceWebClient.post()
+                    .uri("/api/v1/products/batch-reserve")
+                    .header("Authorization", "Bearer " + jwt.getTokenValue())
+                    .bodyValue(batchRequest)
+                    .retrieve()
+                    .bodyToMono(new org.springframework.core.ParameterizedTypeReference<List<BatchReserveStockResponse>>() {})
+                    .block();
 
-            } catch (WebClientResponseException e) {
-                log.error("Stock reservation failed during accept: orderId={}, productId={}, productName={}, status={}, message={}",
-                        orderId, item.getProductId(), item.getProductName(),
-                        e.getStatusCode(), e.getResponseBodyAsString());
+            if (responses == null || responses.isEmpty()) {
+                throw new ExternalServiceException("Store service returned empty response for batch reservation");
+            }
 
-                if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
-                    throw new ResourceNotFoundException("Product not found: " + item.getProductName());
-                } else if (e.getStatusCode() == HttpStatus.UNPROCESSABLE_ENTITY) {
-                    // This is the key case: insufficient stock
-                    throw new InsufficientStockException(
-                            "Insufficient stock for product: " + item.getProductName() +
-                            ". Cannot accept order. Please cancel it.");
-                } else if (e.getStatusCode() == HttpStatus.CONFLICT || e.getStatusCode() == HttpStatus.BAD_REQUEST) {
-                    String error = e.getResponseBodyAsString();
-                    throw new IllegalArgumentException("Failed to reserve stock: " + error);
-                } else {
-                    throw new ExternalServiceException("Store service unavailable during stock reservation: " + e.getMessage());
-                }
+            // Log successful reservations
+            for (BatchReserveStockResponse response : responses) {
+                log.info("Stock reserved successfully: orderId={}, productId={}, productName={}, quantity={}, remainingStock={}",
+                        orderId, response.getProductId(), response.getProductName(),
+                        response.getReservedQuantity(), response.getRemainingStock());
+            }
+
+            log.info("All stock reservations completed successfully in SINGLE batch call: orderId={}, itemCount={}",
+                    orderId, order.getItems().size());
+
+        } catch (WebClientResponseException e) {
+            log.error("Batch stock reservation failed: orderId={}, status={}, message={}",
+                    orderId, e.getStatusCode(), e.getResponseBodyAsString());
+
+            // SAGA COMPENSATION: Store-service already rolled back the transaction
+            // No partial reservations exist - order stays PENDING
+            // This is the correct behavior!
+
+            if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
+                throw new ResourceNotFoundException("One or more products not found during reservation");
+            } else if (e.getStatusCode() == HttpStatus.UNPROCESSABLE_ENTITY) {
+                // Insufficient stock for one or more items
+                throw new InsufficientStockException(
+                        "Insufficient stock for one or more products. Cannot accept order. Please cancel it.");
+            } else if (e.getStatusCode() == HttpStatus.CONFLICT || e.getStatusCode() == HttpStatus.BAD_REQUEST) {
+                String error = e.getResponseBodyAsString();
+                throw new IllegalArgumentException("Failed to reserve stock: " + error);
+            } else {
+                throw new ExternalServiceException("Store service unavailable during stock reservation: " + e.getMessage());
             }
         }
-        log.info("All stock reservations completed successfully: orderId={}", orderId);
 
         // 7. All checks complete, update status and snapshot pickup address
         OrderStatus oldStatus = order.getStatus();
@@ -418,6 +450,9 @@ public class OrderServiceImpl implements OrderService {
         UUID userId = UUID.fromString(jwt.getSubject());
         List<String> roles = extractClientRoles(jwt);
 
+        // Store the old status for later use in stock restoration logic
+        OrderStatus oldStatus = order.getStatus();
+
         // 4. Status-dependent authorization logic
         if (order.getStatus() == OrderStatus.PENDING) {
             // PENDING: Both customer and store_owner can cancel
@@ -450,43 +485,51 @@ public class OrderServiceImpl implements OrderService {
         }
 
         // 5. CRITICAL: Restore stock if order was accepted (PREPARING or ON_THE_WAY)
-        // This is SYNCHRONOUS to ensure consistency (no zombie stock)
-        // If stock restoration fails, the entire cancellation fails
+        // FIXED: Use batch-restore to restore all products in a SINGLE call (no N+1!)
+        // Store-service handles this in a single transaction - if any fails, all rollback
         if (oldStatus == OrderStatus.PREPARING || oldStatus == OrderStatus.ON_THE_WAY) {
-            log.info("Order was accepted (status={}), restoring stock synchronously: orderId={}", oldStatus, orderId);
+            log.info("Order was accepted (status={}), restoring stock in batch: orderId={}, itemCount={}",
+                    oldStatus, orderId, order.getItems().size());
 
-            for (OrderItem item : order.getItems()) {
-                try {
-                    ReserveStockRequest restoreRequest = ReserveStockRequest.builder()
+            // Build batch restore request
+            List<BatchReserveItem> restoreItems = order.getItems().stream()
+                    .map(item -> BatchReserveItem.builder()
+                            .productId(item.getProductId())
                             .quantity(item.getQuantity())
-                            .storeId(order.getStoreId())
-                            .build();
+                            .build())
+                    .collect(Collectors.toList());
 
-                    storeServiceWebClient.post()
-                            .uri("/api/v1/products/" + item.getProductId() + "/restore")
-                            .header("Authorization", "Bearer " + jwt.getTokenValue())
-                            .bodyValue(restoreRequest)
-                            .retrieve()
-                            .bodyToMono(Void.class)
-                            .block();
+            BatchReserveStockRequest restoreRequest = BatchReserveStockRequest.builder()
+                    .storeId(order.getStoreId())
+                    .items(restoreItems)
+                    .build();
 
-                    log.info("Stock restored successfully: orderId={}, productId={}, productName={}, quantity={}",
-                            orderId, item.getProductId(), item.getProductName(), item.getQuantity());
+            try {
+                // SINGLE HTTP CALL to restore all products (no N+1!)
+                // Store-service handles this in a single transaction
+                // If any item fails, the entire transaction rolls back
+                storeServiceWebClient.post()
+                        .uri("/api/v1/products/batch-restore")
+                        .header("Authorization", "Bearer " + jwt.getTokenValue())
+                        .bodyValue(restoreRequest)
+                        .retrieve()
+                        .bodyToMono(Void.class)
+                        .block();
 
-                } catch (WebClientResponseException e) {
-                    log.error("Stock restoration FAILED: orderId={}, productId={}, productName={}, status={}, message={}",
-                            orderId, item.getProductId(), item.getProductName(),
-                            e.getStatusCode(), e.getResponseBodyAsString());
+                log.info("All stock restorations completed successfully in SINGLE batch call: orderId={}, itemCount={}",
+                        orderId, order.getItems().size());
 
-                    // CRITICAL: If stock restoration fails, ABORT the cancellation
-                    // This ensures consistency - order remains in its current state
-                    throw new ExternalServiceException(
-                            "Cannot cancel order: Failed to restore stock for product " + item.getProductName() +
-                            ". Please try again later or contact support.");
-                }
+            } catch (WebClientResponseException e) {
+                log.error("Batch stock restoration FAILED: orderId={}, status={}, message={}",
+                        orderId, e.getStatusCode(), e.getResponseBodyAsString());
+
+                // CRITICAL: If stock restoration fails, ABORT the cancellation
+                // This ensures consistency - order remains in its current state
+                // No partial restorations exist (thanks to transaction rollback)
+                throw new ExternalServiceException(
+                        "Cannot cancel order: Failed to restore stock. " +
+                        "Please try again later or contact support. Error: " + e.getMessage());
             }
-
-            log.info("All stock restorations completed successfully: orderId={}", orderId);
         } else {
             log.info("Order was PENDING, no stock restoration needed: orderId={}, status={}", orderId, oldStatus);
         }

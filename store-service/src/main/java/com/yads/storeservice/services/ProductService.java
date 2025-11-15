@@ -1,5 +1,7 @@
 package com.yads.storeservice.services;
 
+import com.yads.common.dto.BatchReserveStockRequest;
+import com.yads.common.dto.BatchReserveStockResponse;
 import com.yads.common.dto.ReserveStockRequest;
 import com.yads.storeservice.dto.ProductRequest;
 import com.yads.storeservice.dto.ProductResponse;
@@ -33,5 +35,9 @@ public interface ProductService {
 
     // Restore stock (called when order is cancelled)
     void restoreStock(UUID productId, Integer quantity, UUID storeId);
+
+    // Batch operations - CRITICAL for preventing N+1 problem
+    List<BatchReserveStockResponse> batchReserveStock(BatchReserveStockRequest request);
+    void batchRestoreStock(BatchReserveStockRequest request);
 
 }

@@ -1,6 +1,9 @@
 package com.yads.storeservice.services;
 
 import com.yads.common.contracts.ProductEventDto;
+import com.yads.common.dto.BatchReserveItem;
+import com.yads.common.dto.BatchReserveStockRequest;
+import com.yads.common.dto.BatchReserveStockResponse;
 import com.yads.common.dto.ReserveStockRequest;
 import com.yads.storeservice.dto.ProductRequest;
 import com.yads.storeservice.dto.ProductResponse;
@@ -21,6 +24,7 @@ import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -321,6 +325,127 @@ public class ProductServiceImpl implements ProductService {
                 productId, product.getName(), quantity, oldStock, newStock, storeId);
 
         publishProductUpdate(savedProduct, "product.stock.restored");
+    }
+
+    @Override
+    @Transactional
+    public List<BatchReserveStockResponse> batchReserveStock(BatchReserveStockRequest request) {
+        log.info("Batch stock reservation started: storeId={}, itemCount={}", request.getStoreId(), request.getItems().size());
+
+        List<BatchReserveStockResponse> responses = new ArrayList<>();
+
+        // CRITICAL: All operations happen in a single transaction
+        // If ANY item fails, the ENTIRE transaction rolls back
+        for (BatchReserveItem item : request.getItems()) {
+            try {
+                Product product = productRepository.findById(item.getProductId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Product not found: " + item.getProductId()));
+
+                // Store validation
+                if (!product.getCategory().getStore().getId().equals(request.getStoreId())) {
+                    throw new IllegalArgumentException(
+                        "Product " + item.getProductId() + " does not belong to store " + request.getStoreId()
+                    );
+                }
+
+                // Availability check
+                if (!product.getIsAvailable()) {
+                    throw new InsufficientStockException("Product is not available: " + product.getName());
+                }
+
+                // Stock check
+                if (product.getStock() < item.getQuantity()) {
+                    throw new InsufficientStockException(
+                        String.format("Insufficient stock for product '%s'. Available: %d, Requested: %d",
+                                product.getName(), product.getStock(), item.getQuantity())
+                    );
+                }
+
+                // Reserve stock
+                int oldStock = product.getStock();
+                int newStock = oldStock - item.getQuantity();
+                product.setStock(newStock);
+
+                // Update availability if needed
+                if (newStock == 0) {
+                    product.setIsAvailable(false);
+                }
+
+                Product savedProduct = productRepository.save(product);
+
+                log.info("Stock reserved in batch: productId={}, name='{}', quantity={}, oldStock={}, newStock={}",
+                        item.getProductId(), product.getName(), item.getQuantity(), oldStock, newStock);
+
+                // Publish event
+                publishProductUpdate(savedProduct, "product.stock.reserved");
+
+                // Add success response
+                responses.add(BatchReserveStockResponse.builder()
+                        .productId(product.getId())
+                        .productName(product.getName())
+                        .reservedQuantity(item.getQuantity())
+                        .remainingStock(newStock)
+                        .success(true)
+                        .build());
+
+            } catch (Exception e) {
+                log.error("Batch reservation failed for productId={}: {}", item.getProductId(), e.getMessage());
+                // Transaction will rollback, throw exception to caller
+                throw e;
+            }
+        }
+
+        log.info("Batch stock reservation completed successfully: storeId={}, itemCount={}",
+                request.getStoreId(), request.getItems().size());
+
+        return responses;
+    }
+
+    @Override
+    @Transactional
+    public void batchRestoreStock(BatchReserveStockRequest request) {
+        log.info("Batch stock restoration started: storeId={}, itemCount={}", request.getStoreId(), request.getItems().size());
+
+        // CRITICAL: All operations happen in a single transaction
+        // If ANY item fails, the ENTIRE transaction rolls back
+        for (BatchReserveItem item : request.getItems()) {
+            try {
+                Product product = productRepository.findById(item.getProductId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Product not found: " + item.getProductId()));
+
+                // Store validation
+                if (!product.getCategory().getStore().getId().equals(request.getStoreId())) {
+                    throw new IllegalArgumentException(
+                        "Product " + item.getProductId() + " does not belong to store " + request.getStoreId()
+                    );
+                }
+
+                int oldStock = product.getStock();
+                int newStock = oldStock + item.getQuantity();
+                product.setStock(newStock);
+
+                // Restore availability if needed
+                if (oldStock == 0 && newStock > 0) {
+                    product.setIsAvailable(true);
+                }
+
+                Product savedProduct = productRepository.save(product);
+
+                log.info("Stock restored in batch: productId={}, name='{}', quantity={}, oldStock={}, newStock={}",
+                        item.getProductId(), product.getName(), item.getQuantity(), oldStock, newStock);
+
+                // Publish event
+                publishProductUpdate(savedProduct, "product.stock.restored");
+
+            } catch (Exception e) {
+                log.error("Batch restoration failed for productId={}: {}", item.getProductId(), e.getMessage());
+                // Transaction will rollback, throw exception to caller
+                throw e;
+            }
+        }
+
+        log.info("Batch stock restoration completed successfully: storeId={}, itemCount={}",
+                request.getStoreId(), request.getItems().size());
     }
 
     // Helper method for publishing product update events
