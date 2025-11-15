@@ -22,6 +22,7 @@
         <module>order-service</module>
         <module>store-service</module>
         <module>user-service</module>
+        <module>courier-service</module>
         <module>common</module>
     </modules>
 

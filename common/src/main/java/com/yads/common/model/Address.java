@@ -1,5 +1,4 @@
-// order-service/src/main/java/com/yads/orderservice/model/Address.java
-package com.yads.orderservice.model;
+package com.yads.common.model;
 
 import jakarta.persistence.Embeddable;
 import lombok.Data;
@@ -12,5 +11,9 @@ public class Address {
     private String state;
     private String postalCode;
     private String country;
-    private String addressTitle;
+
+    // maybe add lat/long later for geo-queries
+    private Double latitude;
+    private Double longitude;
 }
+

@@ -1,6 +1,7 @@
 // order-service/src/main/java/com/yads/orderservice/model/Order.java
 package com.yads.orderservice.model;
 
+import com.yads.common.model.Address;
 import jakarta.persistence.*;
 import lombok.Data;
 import org.hibernate.annotations.CreationTimestamp;
@@ -57,7 +58,8 @@ public class Order {
             @AttributeOverride(name = "state", column = @Column(name = "pickup_state")),
             @AttributeOverride(name = "postalCode", column = @Column(name = "pickup_postal_code")),
             @AttributeOverride(name = "country", column = @Column(name = "pickup_country")),
-            @AttributeOverride(name = "addressTitle", column = @Column(name = "pickup_address_title"))
+            @AttributeOverride(name = "latitude", column = @Column(name = "pickup_latitude")),
+            @AttributeOverride(name = "longitude", column = @Column(name = "pickup_longitude"))
     })
     private Address pickupAddress;
 

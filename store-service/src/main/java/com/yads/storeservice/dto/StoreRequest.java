@@ -1,6 +1,6 @@
 package com.yads.storeservice.dto;
 
-import com.yads.storeservice.model.Address;
+import com.yads.common.model.Address;
 import com.yads.storeservice.model.StoreType;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;

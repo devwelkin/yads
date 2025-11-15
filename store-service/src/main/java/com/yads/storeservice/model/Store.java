@@ -1,5 +1,6 @@
 package com.yads.storeservice.model;
 
+import com.yads.common.model.Address;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;

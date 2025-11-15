@@ -12,7 +12,7 @@ import com.yads.orderservice.dto.ProductSnapshotDto;
 import com.yads.orderservice.exception.ExternalServiceException;
 import com.yads.orderservice.exception.InvalidOrderStateException;
 import com.yads.orderservice.mapper.OrderMapper;
-import com.yads.orderservice.model.Address;
+import com.yads.common.model.Address;
 import com.yads.orderservice.model.Order;
 import com.yads.orderservice.model.OrderItem;
 import com.yads.orderservice.model.OrderStatus;

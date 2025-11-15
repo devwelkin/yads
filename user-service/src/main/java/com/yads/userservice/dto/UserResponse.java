@@ -1,6 +1,6 @@
 package com.yads.userservice.dto;
 
-import com.yads.userservice.model.Address;
+import com.yads.common.model.Address;
 import lombok.Builder;
 import lombok.Data;
 
