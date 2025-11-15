@@ -1,6 +1,7 @@
 // order-service/src/main/java/com/yads/orderservice/service/OrderServiceImpl.java
 package com.yads.orderservice.service;
 
+import com.yads.common.contracts.OrderAssignmentContract;
 import com.yads.common.dto.ReserveStockRequest;
 import com.yads.common.dto.StoreResponse;
 import com.yads.common.exception.AccessDeniedException;
@@ -202,14 +203,21 @@ public class OrderServiceImpl implements OrderService {
                 orderId, oldStatus, OrderStatus.PREPARING, userId, order.getStoreId());
 
         // 7. Send RabbitMQ event
-        OrderResponse orderResponse = orderMapper.toOrderResponse(updatedOrder);
+        OrderAssignmentContract contract = OrderAssignmentContract.builder()
+                .orderId(updatedOrder.getId())
+                .storeId(updatedOrder.getStoreId())
+                .pickupAddress(updatedOrder.getPickupAddress())
+                .shippingAddress(updatedOrder.getShippingAddress())
+                .build();
+
         try {
-            rabbitTemplate.convertAndSend("order_events_exchange", "order.preparing", orderResponse);
+            rabbitTemplate.convertAndSend("order_events_exchange", "order.preparing", contract);
             log.info("'order.preparing' event sent to RabbitMQ. Order ID: {}", orderId);
         } catch (Exception e) {
             log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}", orderId, e.getMessage());
         }
 
+        OrderResponse orderResponse = orderMapper.toOrderResponse(updatedOrder);
         return orderResponse;
     }
 
