@@ -1,6 +1,5 @@
 package com.yads.storeservice.services;
 
-import com.yads.common.contracts.ProductEventDto;
 import com.yads.common.dto.BatchReserveItem;
 import com.yads.common.dto.BatchReserveStockRequest;
 import com.yads.common.dto.BatchReserveStockResponse;
@@ -8,9 +7,10 @@ import com.yads.common.dto.ReserveStockRequest;
 import com.yads.storeservice.dto.ProductRequest;
 import com.yads.storeservice.dto.ProductResponse;
 import com.yads.common.exception.AccessDeniedException;
-import com.yads.common.exception.DuplicateResourceException;
 import com.yads.common.exception.InsufficientStockException;
 import com.yads.common.exception.ResourceNotFoundException;
+import com.yads.storeservice.event.ProductDeleteEvent;
+import com.yads.storeservice.event.ProductUpdateEvent;
 import com.yads.storeservice.mapper.ProductMapper;
 import com.yads.storeservice.model.Category;
 import com.yads.storeservice.model.Product;
@@ -20,8 +20,7 @@ import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.amqp.core.TopicExchange;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -37,8 +36,7 @@ public class ProductServiceImpl implements ProductService {
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
     private final ProductMapper productMapper;
-    private final RabbitTemplate rabbitTemplate;
-    private final TopicExchange storeEventsExchange;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -70,8 +68,8 @@ public class ProductServiceImpl implements ProductService {
                 savedProduct.getId(), savedProduct.getName(), categoryId,
                 category.getStore().getId(), savedProduct.getPrice(), savedProduct.getStock());
 
-        // Publish product creation event
-        publishProductUpdate(savedProduct, "product.created");
+        // Publish product creation event (will be sent after transaction commit)
+        eventPublisher.publishEvent(new ProductUpdateEvent(this, savedProduct, "product.created"));
         return productMapper.toProductResponse(savedProduct);
     }
 
@@ -99,8 +97,8 @@ public class ProductServiceImpl implements ProductService {
                 productId, updatedProduct.getName(), updatedProduct.getCategory().getStore().getId(),
                 updatedProduct.getPrice(), updatedProduct.getStock());
 
-        // Publish product update event
-        publishProductUpdate(updatedProduct, "product.updated");
+        // Publish product update event (will be sent after transaction commit)
+        eventPublisher.publishEvent(new ProductUpdateEvent(this, updatedProduct, "product.updated"));
         return productMapper.toProductResponse(updatedProduct);
     }
 
@@ -125,8 +123,8 @@ public class ProductServiceImpl implements ProductService {
 
         log.info("Product deleted: id={}, name='{}', storeId={}, owner={}", productId, productName, storeId, ownerId);
 
-        // Publish product deletion event
-        rabbitTemplate.convertAndSend(storeEventsExchange.getName(), "product.deleted", productId);
+        // Publish product deletion event (will be sent after transaction commit)
+        eventPublisher.publishEvent(new ProductDeleteEvent(this, productId));
     }
 
     @Override
@@ -211,8 +209,8 @@ public class ProductServiceImpl implements ProductService {
         log.info("Product stock updated: id={}, name='{}', oldStock={}, newStock={}, available={}",
                 productId, product.getName(), oldStock, quantity, quantity > 0);
 
-        // Publish product update event
-        publishProductUpdate(updatedProduct, "product.stock.updated");
+        // Publish product update event (will be sent after transaction commit)
+        eventPublisher.publishEvent(new ProductUpdateEvent(this, updatedProduct, "product.stock.updated"));
         return productMapper.toProductResponse(updatedProduct);
     }
 
@@ -240,8 +238,8 @@ public class ProductServiceImpl implements ProductService {
         log.info("Product availability toggled: id={}, name='{}', oldAvailability={}, newAvailability={}",
                 productId, product.getName(), oldAvailability, !oldAvailability);
 
-        // Publish product update event
-        publishProductUpdate(updatedProduct, "product.availability.updated");
+        // Publish product update event (will be sent after transaction commit)
+        eventPublisher.publishEvent(new ProductUpdateEvent(this, updatedProduct, "product.availability.updated"));
         return productMapper.toProductResponse(updatedProduct);
     }
 
@@ -286,7 +284,8 @@ public class ProductServiceImpl implements ProductService {
         log.info("Product stock reserved: id={}, name='{}', reserved={}, oldStock={}, newStock={}, storeId={}",
                 productId, product.getName(), request.getQuantity(), oldStock, newStock, request.getStoreId());
 
-        publishProductUpdate(savedProduct, "product.stock.reserved");
+        // Publish product update event (will be sent after transaction commit)
+        eventPublisher.publishEvent(new ProductUpdateEvent(this, savedProduct, "product.stock.reserved"));
 
         return productMapper.toProductResponse(savedProduct);
     }
@@ -324,7 +323,8 @@ public class ProductServiceImpl implements ProductService {
         log.info("Product stock restored: id={}, name='{}', restored={}, oldStock={}, newStock={}, storeId={}",
                 productId, product.getName(), quantity, oldStock, newStock, storeId);
 
-        publishProductUpdate(savedProduct, "product.stock.restored");
+        // Publish product update event (will be sent after transaction commit)
+        eventPublisher.publishEvent(new ProductUpdateEvent(this, savedProduct, "product.stock.restored"));
     }
 
     @Override
@@ -336,6 +336,7 @@ public class ProductServiceImpl implements ProductService {
 
         // CRITICAL: All operations happen in a single transaction
         // If ANY item fails, the ENTIRE transaction rolls back
+        // Events are published AFTER all operations succeed (via @TransactionalEventListener AFTER_COMMIT)
         for (BatchReserveItem item : request.getItems()) {
             try {
                 Product product = productRepository.findById(item.getProductId())
@@ -376,8 +377,9 @@ public class ProductServiceImpl implements ProductService {
                 log.info("Stock reserved in batch: productId={}, name='{}', quantity={}, oldStock={}, newStock={}",
                         item.getProductId(), product.getName(), item.getQuantity(), oldStock, newStock);
 
-                // Publish event
-                publishProductUpdate(savedProduct, "product.stock.reserved");
+                // Schedule event to be published after transaction commit
+                // If transaction rolls back, this event will NOT be sent
+                eventPublisher.publishEvent(new ProductUpdateEvent(this, savedProduct, "product.stock.reserved"));
 
                 // Add success response
                 responses.add(BatchReserveStockResponse.builder()
@@ -390,7 +392,7 @@ public class ProductServiceImpl implements ProductService {
 
             } catch (Exception e) {
                 log.error("Batch reservation failed for productId={}: {}", item.getProductId(), e.getMessage());
-                // Transaction will rollback, throw exception to caller
+                // Transaction will rollback, ALL DB changes undone, NO events sent
                 throw e;
             }
         }
@@ -408,6 +410,7 @@ public class ProductServiceImpl implements ProductService {
 
         // CRITICAL: All operations happen in a single transaction
         // If ANY item fails, the ENTIRE transaction rolls back
+        // Events are published AFTER all operations succeed (via @TransactionalEventListener AFTER_COMMIT)
         for (BatchReserveItem item : request.getItems()) {
             try {
                 Product product = productRepository.findById(item.getProductId())
@@ -434,31 +437,18 @@ public class ProductServiceImpl implements ProductService {
                 log.info("Stock restored in batch: productId={}, name='{}', quantity={}, oldStock={}, newStock={}",
                         item.getProductId(), product.getName(), item.getQuantity(), oldStock, newStock);
 
-                // Publish event
-                publishProductUpdate(savedProduct, "product.stock.restored");
+                // Schedule event to be published after transaction commit
+                // If transaction rolls back, this event will NOT be sent
+                eventPublisher.publishEvent(new ProductUpdateEvent(this, savedProduct, "product.stock.restored"));
 
             } catch (Exception e) {
                 log.error("Batch restoration failed for productId={}: {}", item.getProductId(), e.getMessage());
-                // Transaction will rollback, throw exception to caller
+                // Transaction will rollback, ALL DB changes undone, NO events sent
                 throw e;
             }
         }
 
         log.info("Batch stock restoration completed successfully: storeId={}, itemCount={}",
                 request.getStoreId(), request.getItems().size());
-    }
-
-    // Helper method for publishing product update events
-    private void publishProductUpdate(Product product, String routingKey) {
-        ProductEventDto eventDto = ProductEventDto.builder()
-                .productId(product.getId())
-                .name(product.getName())
-                .price(product.getPrice())
-                .stock(product.getStock())
-                .isAvailable(product.getIsAvailable())
-                .storeId(product.getCategory().getStore().getId())
-                .build();
-
-        rabbitTemplate.convertAndSend(storeEventsExchange.getName(), routingKey, eventDto);
     }
 }
