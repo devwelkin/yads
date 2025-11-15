@@ -4,9 +4,10 @@ import com.yads.common.contracts.ProductEventDto;
 import com.yads.common.dto.ReserveStockRequest;
 import com.yads.storeservice.dto.ProductRequest;
 import com.yads.storeservice.dto.ProductResponse;
-import com.yads.storeservice.exception.AccessDeniedException;
-import com.yads.storeservice.exception.DuplicateResourceException;
-import com.yads.storeservice.exception.ResourceNotFoundException;
+import com.yads.common.exception.AccessDeniedException;
+import com.yads.common.exception.DuplicateResourceException;
+import com.yads.common.exception.InsufficientStockException;
+import com.yads.common.exception.ResourceNotFoundException;
 import com.yads.storeservice.mapper.ProductMapper;
 import com.yads.storeservice.model.Category;
 import com.yads.storeservice.model.Product;
@@ -14,6 +15,8 @@ import com.yads.storeservice.repository.CategoryRepository;
 import com.yads.storeservice.repository.ProductRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
@@ -24,6 +27,8 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class ProductServiceImpl implements ProductService {
+
+    private static final Logger log = LoggerFactory.getLogger(ProductServiceImpl.class);
 
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
@@ -36,11 +41,13 @@ public class ProductServiceImpl implements ProductService {
     public ProductResponse createProduct(UUID categoryId, ProductRequest request, UUID ownerId) {
         // Find category
         Category category = categoryRepository.findById(categoryId)
-                .orElseThrow(() -> new ResourceNotFoundException("Category not found with id: " + categoryId));
+                .orElseThrow(() -> new ResourceNotFoundException("Category not found"));
 
         // Check if user owns the store that contains this category
         if (!category.getStore().getOwnerId().equals(ownerId)) {
-            throw new AccessDeniedException("User is not authorized to add products to this category");
+            log.warn("Access denied: User {} attempted to add product to category {} in store {} owned by {}",
+                    ownerId, categoryId, category.getStore().getId(), category.getStore().getOwnerId());
+            throw new AccessDeniedException("You are not authorized to add products to this category");
         }
 
         // Map request to product entity
@@ -55,6 +62,10 @@ public class ProductServiceImpl implements ProductService {
         // Save and return
         Product savedProduct = productRepository.save(product);
 
+        log.info("Product created: id={}, name='{}', categoryId={}, storeId={}, price={}, stock={}",
+                savedProduct.getId(), savedProduct.getName(), categoryId,
+                category.getStore().getId(), savedProduct.getPrice(), savedProduct.getStock());
+
         // Publish product creation event
         publishProductUpdate(savedProduct, "product.created");
         return productMapper.toProductResponse(savedProduct);
@@ -65,11 +76,13 @@ public class ProductServiceImpl implements ProductService {
     public ProductResponse updateProduct(UUID productId, ProductRequest request, UUID ownerId) {
         // Find product
         Product product = productRepository.findById(productId)
-                .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + productId));
+                .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
 
         // Check authorization
         if (!product.getCategory().getStore().getOwnerId().equals(ownerId)) {
-            throw new AccessDeniedException("User is not authorized to update this product");
+            log.warn("Access denied: User {} attempted to update product {} in store {} owned by {}",
+                    ownerId, productId, product.getCategory().getStore().getId(), product.getCategory().getStore().getOwnerId());
+            throw new AccessDeniedException("You are not authorized to update this product");
         }
 
         // Update basic fields (name, description, price, stock, imageUrl)
@@ -77,6 +90,10 @@ public class ProductServiceImpl implements ProductService {
 
         // Save and return
         Product updatedProduct = productRepository.save(product);
+
+        log.info("Product updated: id={}, name='{}', storeId={}, price={}, stock={}",
+                productId, updatedProduct.getName(), updatedProduct.getCategory().getStore().getId(),
+                updatedProduct.getPrice(), updatedProduct.getStock());
 
         // Publish product update event
         publishProductUpdate(updatedProduct, "product.updated");
@@ -88,15 +105,22 @@ public class ProductServiceImpl implements ProductService {
     public void deleteProduct(UUID productId, UUID ownerId) {
         // Find product
         Product product = productRepository.findById(productId)
-                .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + productId));
+                .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
 
         // Check authorization
         if (!product.getCategory().getStore().getOwnerId().equals(ownerId)) {
-            throw new AccessDeniedException("User is not authorized to delete this product");
+            log.warn("Access denied: User {} attempted to delete product {} from store {} owned by {}",
+                    ownerId, productId, product.getCategory().getStore().getId(), product.getCategory().getStore().getOwnerId());
+            throw new AccessDeniedException("You are not authorized to delete this product");
         }
 
         // Delete
+        String productName = product.getName();
+        UUID storeId = product.getCategory().getStore().getId();
         productRepository.delete(product);
+
+        log.info("Product deleted: id={}, name='{}', storeId={}, owner={}", productId, productName, storeId, ownerId);
+
         // Publish product deletion event
         rabbitTemplate.convertAndSend(storeEventsExchange.getName(), "product.deleted", productId);
     }
@@ -105,7 +129,7 @@ public class ProductServiceImpl implements ProductService {
     @Transactional
     public ProductResponse getProductById(UUID productId) {
         Product product = productRepository.findById(productId)
-                .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + productId));
+                .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
 
         return productMapper.toProductResponse(product);
     }
@@ -115,7 +139,7 @@ public class ProductServiceImpl implements ProductService {
     public List<ProductResponse> getProductsByCategory(UUID categoryId) {
         // Verify category exists
         if (!categoryRepository.existsById(categoryId)) {
-            throw new ResourceNotFoundException("Category not found with id: " + categoryId);
+            throw new ResourceNotFoundException("Category not found");
         }
 
         List<Product> products = productRepository.findByCategoryId(categoryId);
@@ -129,7 +153,7 @@ public class ProductServiceImpl implements ProductService {
     public List<ProductResponse> getAvailableProductsByCategory(UUID categoryId) {
         // Verify category exists
         if (!categoryRepository.existsById(categoryId)) {
-            throw new ResourceNotFoundException("Category not found with id: " + categoryId);
+            throw new ResourceNotFoundException("Category not found");
         }
 
         List<Product> products = productRepository.findByCategoryIdAndIsAvailableTrue(categoryId);
@@ -161,14 +185,17 @@ public class ProductServiceImpl implements ProductService {
     public ProductResponse updateStock(UUID productId, Integer quantity, UUID ownerId) {
         // Find product
         Product product = productRepository.findById(productId)
-                .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + productId));
+                .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
 
         // Check authorization
         if (!product.getCategory().getStore().getOwnerId().equals(ownerId)) {
-            throw new AccessDeniedException("User is not authorized to update stock for this product");
+            log.warn("Access denied: User {} attempted to update stock for product {} in store {} owned by {}",
+                    ownerId, productId, product.getCategory().getStore().getId(), product.getCategory().getStore().getOwnerId());
+            throw new AccessDeniedException("You are not authorized to update stock for this product");
         }
 
         // Update stock
+        int oldStock = product.getStock();
         product.setStock(quantity);
 
         // Auto-update availability based on stock
@@ -176,6 +203,9 @@ public class ProductServiceImpl implements ProductService {
 
         // Save and return
         Product updatedProduct = productRepository.save(product);
+
+        log.info("Product stock updated: id={}, name='{}', oldStock={}, newStock={}, available={}",
+                productId, product.getName(), oldStock, quantity, quantity > 0);
 
         // Publish product update event
         publishProductUpdate(updatedProduct, "product.stock.updated");
@@ -187,18 +217,24 @@ public class ProductServiceImpl implements ProductService {
     public ProductResponse toggleAvailability(UUID productId, UUID ownerId) {
         // Find product
         Product product = productRepository.findById(productId)
-                .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + productId));
+                .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
 
         // Check authorization
         if (!product.getCategory().getStore().getOwnerId().equals(ownerId)) {
-            throw new AccessDeniedException("User is not authorized to change availability for this product");
+            log.warn("Access denied: User {} attempted to toggle availability for product {} in store {} owned by {}",
+                    ownerId, productId, product.getCategory().getStore().getId(), product.getCategory().getStore().getOwnerId());
+            throw new AccessDeniedException("You are not authorized to change availability for this product");
         }
 
         // Toggle availability
+        boolean oldAvailability = product.getIsAvailable();
         product.setIsAvailable(!product.getIsAvailable());
 
         // Save and return
         Product updatedProduct = productRepository.save(product);
+
+        log.info("Product availability toggled: id={}, name='{}', oldAvailability={}, newAvailability={}",
+                productId, product.getName(), oldAvailability, !oldAvailability);
 
         // Publish product update event
         publishProductUpdate(updatedProduct, "product.availability.updated");
@@ -210,21 +246,30 @@ public class ProductServiceImpl implements ProductService {
     public ProductResponse reserveProduct(UUID productId, ReserveStockRequest request) {
         // Find product
         Product product = productRepository.findById(productId)
-                .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + productId));
+                .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
 
         // Store control
         if (!product.getCategory().getStore().getId().equals(request.getStoreId())) {
-            throw new IllegalArgumentException("Product " + product.getName() + " does not belong to store " + request.getStoreId());
+            log.warn("Invalid store: Product {} belongs to store {} but request specified store {}",
+                    productId, product.getCategory().getStore().getId(), request.getStoreId());
+            throw new IllegalArgumentException("Product does not belong to the specified store");
         }
 
         if (!product.getIsAvailable()) {
-            throw new DuplicateResourceException("Product " + product.getName() + " is not available");
+            log.info("Product {} is not available for reservation (requested by store {})",
+                    productId, request.getStoreId());
+            throw new InsufficientStockException("Product is not available");
         }
 
         if (product.getStock() < request.getQuantity()) {
-            throw new DuplicateResourceException("Not enough stock for product " + product.getName());
+            log.info("Insufficient stock for product {}: available={}, requested={}",
+                    productId, product.getStock(), request.getQuantity());
+            throw new InsufficientStockException(
+                String.format("Not enough stock. Requested: %d", request.getQuantity())
+            );
         }
 
+        int oldStock = product.getStock();
         int newStock = product.getStock() - request.getQuantity();
         product.setStock(newStock);
 
@@ -233,6 +278,9 @@ public class ProductServiceImpl implements ProductService {
         }
 
         Product savedProduct = productRepository.save(product);
+
+        log.info("Product stock reserved: id={}, name='{}', reserved={}, oldStock={}, newStock={}, storeId={}",
+                productId, product.getName(), request.getQuantity(), oldStock, newStock, request.getStoreId());
 
         publishProductUpdate(savedProduct, "product.stock.reserved");
 

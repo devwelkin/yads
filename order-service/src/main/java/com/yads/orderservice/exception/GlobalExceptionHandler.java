@@ -1,10 +1,8 @@
-package com.yads.storeservice.exception;
+package com.yads.orderservice.exception;
 
 import com.yads.common.dto.ErrorResponse;
 import com.yads.common.dto.ValidationErrorResponse;
 import com.yads.common.exception.AccessDeniedException;
-import com.yads.common.exception.DuplicateResourceException;
-import com.yads.common.exception.InsufficientStockException;
 import com.yads.common.exception.ResourceNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -35,7 +33,7 @@ public class GlobalExceptionHandler {
 
     /**
      * Handles ResourceNotFoundException (404 - Not Found)
-     * Thrown when a requested resource (Store, Category, Product) is not found
+     * Thrown when a requested resource (Order, Product, Store) is not found
      * Note: Logging is done at service layer with more context
      */
     @ExceptionHandler(ResourceNotFoundException.class)
@@ -61,8 +59,9 @@ public class GlobalExceptionHandler {
 
     /**
      * Handles AccessDeniedException (403 - Forbidden)
-     * Thrown when user tries to access/modify a resource they don't own
-     * Note: Logging is done at service layer with more context (user ID, resource ID, owner ID)
+     * Thrown when user tries to access/modify an order they don't own
+     * or when role-based access is denied
+     * Note: Logging is done at service layer with more context (user ID, order ID, etc.)
      */
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleAccessDeniedException(
@@ -86,29 +85,55 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * Handles DuplicateResourceException (409 - Conflict)
-     * Thrown when trying to create a resource that already exists
+     * Handles InvalidOrderStateException (422 - Unprocessable Entity)
+     * Thrown when trying to perform an invalid state transition
      * Note: Logging is done at service layer with more context
      */
-    @ExceptionHandler(DuplicateResourceException.class)
-    public ResponseEntity<ErrorResponse> handleDuplicateResourceException(
-            DuplicateResourceException ex,
+    @ExceptionHandler(InvalidOrderStateException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidOrderStateException(
+            InvalidOrderStateException ex,
+            HttpServletRequest request) {
+
+        String correlationId = generateCorrelationId();
+        // No logging here - service layer has better context with order state details
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .status(HttpStatus.UNPROCESSABLE_ENTITY.value())
+                .error(HttpStatus.UNPROCESSABLE_ENTITY.getReasonPhrase())
+                .message(ex.getMessage())
+                .path(request.getRequestURI())
+                .timestamp(LocalDateTime.now())
+                .errorCode("INVALID_ORDER_STATE")
+                .correlationId(correlationId)
+                .build();
+
+        return new ResponseEntity<>(errorResponse, HttpStatus.UNPROCESSABLE_ENTITY);
+    }
+
+    /**
+     * Handles ExternalServiceException (502 - Bad Gateway)
+     * Thrown when communication with external services (store-service) fails
+     * Note: Logging is done at service layer with more context
+     */
+    @ExceptionHandler(ExternalServiceException.class)
+    public ResponseEntity<ErrorResponse> handleExternalServiceException(
+            ExternalServiceException ex,
             HttpServletRequest request) {
 
         String correlationId = generateCorrelationId();
         // No logging here - service layer has better context
 
         ErrorResponse errorResponse = ErrorResponse.builder()
-                .status(HttpStatus.CONFLICT.value())
-                .error(HttpStatus.CONFLICT.getReasonPhrase())
+                .status(HttpStatus.BAD_GATEWAY.value())
+                .error(HttpStatus.BAD_GATEWAY.getReasonPhrase())
                 .message(ex.getMessage())
                 .path(request.getRequestURI())
                 .timestamp(LocalDateTime.now())
-                .errorCode("DUPLICATE_RESOURCE")
+                .errorCode("EXTERNAL_SERVICE_ERROR")
                 .correlationId(correlationId)
                 .build();
 
-        return new ResponseEntity<>(errorResponse, HttpStatus.CONFLICT);
+        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_GATEWAY);
     }
 
     /**
@@ -143,32 +168,6 @@ public class GlobalExceptionHandler {
                 .build();
 
         return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
-    }
-
-    /**
-     * Handles InsufficientStockException (422 - Unprocessable Entity)
-     * Thrown when there is not enough stock for a product operation
-     * Note: Logging is done at service layer with more context (product ID, available stock, requested quantity)
-     */
-    @ExceptionHandler(InsufficientStockException.class)
-    public ResponseEntity<ErrorResponse> handleInsufficientStockException(
-            InsufficientStockException ex,
-            HttpServletRequest request) {
-
-        String correlationId = generateCorrelationId();
-        // No logging here - service layer has better context with stock details
-
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .status(HttpStatus.UNPROCESSABLE_ENTITY.value())
-                .error(HttpStatus.UNPROCESSABLE_ENTITY.getReasonPhrase())
-                .message(ex.getMessage())
-                .path(request.getRequestURI())
-                .timestamp(LocalDateTime.now())
-                .errorCode("INSUFFICIENT_STOCK")
-                .correlationId(correlationId)
-                .build();
-
-        return new ResponseEntity<>(errorResponse, HttpStatus.UNPROCESSABLE_ENTITY);
     }
 
     /**
@@ -228,3 +227,5 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 }
+
+

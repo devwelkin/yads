@@ -3,10 +3,14 @@ package com.yads.orderservice.service;
 
 import com.yads.common.dto.ReserveStockRequest;
 import com.yads.common.dto.StoreResponse;
+import com.yads.common.exception.AccessDeniedException;
+import com.yads.common.exception.ResourceNotFoundException;
 import com.yads.orderservice.dto.OrderItemRequest;
 import com.yads.orderservice.dto.OrderRequest;
 import com.yads.orderservice.dto.OrderResponse;
 import com.yads.orderservice.dto.ProductSnapshotDto;
+import com.yads.orderservice.exception.ExternalServiceException;
+import com.yads.orderservice.exception.InvalidOrderStateException;
 import com.yads.orderservice.mapper.OrderMapper;
 import com.yads.orderservice.model.Order;
 import com.yads.orderservice.model.OrderItem;
@@ -77,19 +81,19 @@ public class OrderServiceImpl implements OrderService {
                 // Calculate total price
                 totalPrice = totalPrice.add(productInfo.getPrice().multiply(BigDecimal.valueOf(reqItem.getQuantity())));
             } catch (WebClientResponseException e) {
+                log.error("Stock reservation failed: productId={}, storeId={}, status={}, message={}",
+                        reqItem.getProductId(), orderRequest.getStoreId(),
+                        e.getStatusCode(), e.getResponseBodyAsString());
 
-                log.warn("Failed to reserve stock for product {}: {}", reqItem.getProductId(), e.getMessage());
-
-
-                switch (e.getStatusCode()) {
-                    case HttpStatus.NOT_FOUND ->
-                            throw new IllegalArgumentException("Product not found: " + reqItem.getProductId());
-                    case HttpStatus.CONFLICT, HttpStatus.BAD_REQUEST -> {
-                        String error = e.getResponseBodyAsString();
-                        throw new IllegalArgumentException(error);
-                    }
-                    default ->
-                            throw new RuntimeException("Error communicating with store service: " + e.getMessage());
+                if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
+                    throw new ResourceNotFoundException("Product not found: " + reqItem.getProductId());
+                } else if (e.getStatusCode() == HttpStatus.UNPROCESSABLE_ENTITY) {
+                    throw new InvalidOrderStateException("Insufficient stock for product: " + reqItem.getProductId());
+                } else if (e.getStatusCode() == HttpStatus.CONFLICT || e.getStatusCode() == HttpStatus.BAD_REQUEST) {
+                    String error = e.getResponseBodyAsString();
+                    throw new IllegalArgumentException(error);
+                } else {
+                    throw new ExternalServiceException("Store service unavailable: " + e.getMessage());
                 }
             }
 
@@ -139,11 +143,16 @@ public class OrderServiceImpl implements OrderService {
 
         // 1. Get order from DB
         Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new RuntimeException("Order not found with id: " + orderId)); // TODO: proper exception
+                .orElseThrow(() -> {
+                    log.warn("Order not found: orderId={}", orderId);
+                    return new ResourceNotFoundException("Order not found with id: " + orderId);
+                });
 
         // 2. Check order status
         if (order.getStatus() != OrderStatus.PENDING) {
-            throw new IllegalStateException("Order status must be PENDING to accept. Current status: " + order.getStatus());
+            log.warn("Invalid state transition: orderId={}, currentStatus={}, attemptedAction=accept",
+                    orderId, order.getStatus());
+            throw new InvalidOrderStateException("Order status must be PENDING to accept. Current status: " + order.getStatus());
         }
 
         // 3. Get userId and role from JWT
@@ -152,24 +161,30 @@ public class OrderServiceImpl implements OrderService {
 
         // 4. Role check - must be STORE_OWNER
         if (!roles.contains("STORE_OWNER")) {
-            throw new RuntimeException("Access Denied: Only store owners can accept orders"); // TODO: proper exception
+            log.warn("Access denied: User {} attempted to accept order {} without STORE_OWNER role",
+                    userId, orderId);
+            throw new AccessDeniedException("Access Denied: Only store owners can accept orders");
         }
 
         // 5. Critical: Is this store owner the owner of this order's store?
         if (!isStoreOwnerOfOrder(order, userId, jwt)) {
-            throw new RuntimeException("Access Denied: You are not the owner of this store"); // TODO: proper exception
+            log.warn("Access denied: User {} attempted to accept order {} for store {} which they don't own",
+                    userId, orderId, order.getStoreId());
+            throw new AccessDeniedException("Access Denied: You are not the owner of this store");
         }
 
         // 6. All checks complete, update status
+        OrderStatus oldStatus = order.getStatus();
         order.setStatus(OrderStatus.PREPARING);
 
         // TODO: Remove this mock when courier-service is built
         // Temporarily assign a hardcoded courier for testing
         // In production, courier-service will listen to "order.preparing" event and assign a courier
-        order.setCourierId(UUID.fromString("40869d03-c4a2-41e7-8363-b3e4b81004df")); // Mock courier UUID
+        order.setCourierId(null); // Mock courier UUID
 
         Order updatedOrder = orderRepository.save(order);
-        log.info("Order status updated to PREPARING. Order ID: {}", orderId);
+        log.info("Order status updated: orderId={}, from={}, to={}, user={}, storeId={}",
+                orderId, oldStatus, OrderStatus.PREPARING, userId, order.getStoreId());
 
         // 7. Send RabbitMQ event
         OrderResponse orderResponse = orderMapper.toOrderResponse(updatedOrder);
@@ -190,11 +205,16 @@ public class OrderServiceImpl implements OrderService {
 
         // 1. Get order from DB
         Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new RuntimeException("Order not found with id: " + orderId)); // TODO: proper exception
+                .orElseThrow(() -> {
+                    log.warn("Order not found: orderId={}", orderId);
+                    return new ResourceNotFoundException("Order not found with id: " + orderId);
+                });
 
         // 2. Check order status - must be PREPARING
         if (order.getStatus() != OrderStatus.PREPARING) {
-            throw new IllegalStateException("Order status must be PREPARING to pickup. Current status: " + order.getStatus());
+            log.warn("Invalid state transition: orderId={}, currentStatus={}, attemptedAction=pickup",
+                    orderId, order.getStatus());
+            throw new InvalidOrderStateException("Order status must be PREPARING to pickup. Current status: " + order.getStatus());
         }
 
         // 3. Get userId and role from JWT
@@ -203,24 +223,29 @@ public class OrderServiceImpl implements OrderService {
 
         // 4. Role check - must be COURIER
         if (!roles.contains("COURIER")) {
-            throw new RuntimeException("Access Denied: Only couriers can pickup orders"); // TODO: proper exception
+            log.warn("Access denied: User {} attempted to pickup order {} without COURIER role",
+                    userId, orderId);
+            throw new AccessDeniedException("Access Denied: Only couriers can pickup orders");
         }
 
         // 5. Critical: Is this courier assigned to this order?
         if (order.getCourierId() == null) {
-            // No courier has been assigned yet
-            throw new IllegalStateException("No courier has been assigned to this order yet.");
+            log.warn("Courier assignment missing: orderId={}, attemptedBy={}", orderId, userId);
+            throw new InvalidOrderStateException("No courier has been assigned to this order yet.");
         }
 
         if (!order.getCourierId().equals(userId)) {
-            // Order is not assigned to this courier
-            throw new RuntimeException("Access Denied: You are not assigned to this order"); // TODO: proper exception
+            log.warn("Access denied: Courier {} attempted to pickup order {} assigned to courier {}",
+                    userId, orderId, order.getCourierId());
+            throw new AccessDeniedException("Access Denied: You are not assigned to this order");
         }
 
         // 6. All checks complete, update status
+        OrderStatus oldStatus = order.getStatus();
         order.setStatus(OrderStatus.ON_THE_WAY);
         Order updatedOrder = orderRepository.save(order);
-        log.info("Order status updated to ON_THE_WAY. Order ID: {}", orderId);
+        log.info("Order status updated: orderId={}, from={}, to={}, courier={}",
+                orderId, oldStatus, OrderStatus.ON_THE_WAY, userId);
 
         // 7. Send RabbitMQ event
         OrderResponse orderResponse = orderMapper.toOrderResponse(updatedOrder);
@@ -241,11 +266,16 @@ public class OrderServiceImpl implements OrderService {
 
         // 1. Get order from DB
         Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new RuntimeException("Order not found with id: " + orderId)); // TODO: proper exception
+                .orElseThrow(() -> {
+                    log.warn("Order not found: orderId={}", orderId);
+                    return new ResourceNotFoundException("Order not found with id: " + orderId);
+                });
 
         // 2. Check order status - must be ON_THE_WAY
         if (order.getStatus() != OrderStatus.ON_THE_WAY) {
-            throw new IllegalStateException("Order status must be ON_THE_WAY to deliver. Current status: " + order.getStatus());
+            log.warn("Invalid state transition: orderId={}, currentStatus={}, attemptedAction=deliver",
+                    orderId, order.getStatus());
+            throw new InvalidOrderStateException("Order status must be ON_THE_WAY to deliver. Current status: " + order.getStatus());
         }
 
         // 3. Get userId and role from JWT
@@ -254,24 +284,29 @@ public class OrderServiceImpl implements OrderService {
 
         // 4. Role check - must be COURIER
         if (!roles.contains("COURIER")) {
-            throw new RuntimeException("Access Denied: Only couriers can deliver orders"); // TODO: proper exception
+            log.warn("Access denied: User {} attempted to deliver order {} without COURIER role",
+                    userId, orderId);
+            throw new AccessDeniedException("Access Denied: Only couriers can deliver orders");
         }
 
         // 5. Critical: Is this courier assigned to this order?
         if (order.getCourierId() == null) {
-            // No courier has been assigned yet
-            throw new IllegalStateException("No courier has been assigned to this order yet.");
+            log.warn("Courier assignment missing: orderId={}, attemptedBy={}", orderId, userId);
+            throw new InvalidOrderStateException("No courier has been assigned to this order yet.");
         }
 
         if (!order.getCourierId().equals(userId)) {
-            // Order is not assigned to this courier
-            throw new RuntimeException("Access Denied: You are not assigned to this order"); // TODO: proper exception
+            log.warn("Access denied: Courier {} attempted to deliver order {} assigned to courier {}",
+                    userId, orderId, order.getCourierId());
+            throw new AccessDeniedException("Access Denied: You are not assigned to this order");
         }
 
         // 6. All checks complete, update status
+        OrderStatus oldStatus = order.getStatus();
         order.setStatus(OrderStatus.DELIVERED);
         Order updatedOrder = orderRepository.save(order);
-        log.info("Order status updated to DELIVERED. Order ID: {}", orderId);
+        log.info("Order status updated: orderId={}, from={}, to={}, courier={}",
+                orderId, oldStatus, OrderStatus.DELIVERED, userId);
 
         // 7. Send RabbitMQ event
         OrderResponse orderResponse = orderMapper.toOrderResponse(updatedOrder);
@@ -292,14 +327,21 @@ public class OrderServiceImpl implements OrderService {
 
         // 1. Get order from DB
         Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new RuntimeException("Order not found with id: " + orderId)); // TODO: proper exception
+                .orElseThrow(() -> {
+                    log.warn("Order not found: orderId={}", orderId);
+                    return new ResourceNotFoundException("Order not found with id: " + orderId);
+                });
 
         // 2. Check if order is already in a final state
         if (order.getStatus() == OrderStatus.CANCELLED) {
-            throw new IllegalStateException("Order is already cancelled.");
+            log.warn("Invalid state transition: orderId={}, currentStatus=CANCELLED, attemptedAction=cancel",
+                    orderId);
+            throw new InvalidOrderStateException("Order is already cancelled.");
         }
         if (order.getStatus() == OrderStatus.DELIVERED) {
-            throw new IllegalStateException("Cannot cancel a delivered order.");
+            log.warn("Invalid state transition: orderId={}, currentStatus=DELIVERED, attemptedAction=cancel",
+                    orderId);
+            throw new InvalidOrderStateException("Cannot cancel a delivered order.");
         }
 
         // 3. Get userId and roles from JWT
@@ -313,24 +355,36 @@ public class OrderServiceImpl implements OrderService {
             boolean isStoreOwner = (roles.contains("STORE_OWNER") && isStoreOwnerOfOrder(order, userId, jwt));
 
             if (!isCustomer && !isStoreOwner) {
-                throw new RuntimeException("Access Denied: Only the customer or store owner can cancel a pending order"); // TODO: proper exception
+                log.warn("Access denied: User {} attempted to cancel PENDING order {} (owner: {}, storeId: {})",
+                        userId, orderId, order.getUserId(), order.getStoreId());
+                throw new AccessDeniedException("Access Denied: Only the customer or store owner can cancel a pending order");
             }
+            log.info("Order cancellation authorized: orderId={}, status=PENDING, cancelledBy={}, isCustomer={}, isStoreOwner={}",
+                    orderId, userId, isCustomer, isStoreOwner);
 
         } else if (order.getStatus() == OrderStatus.PREPARING) {
             // PREPARING: Only store_owner can cancel (customer's window has closed)
             if (!roles.contains("STORE_OWNER") || !isStoreOwnerOfOrder(order, userId, jwt)) {
-                throw new RuntimeException("Access Denied: Only the store owner can cancel an order that is being prepared"); // TODO: proper exception
+                log.warn("Access denied: User {} attempted to cancel PREPARING order {} (storeId: {})",
+                        userId, orderId, order.getStoreId());
+                throw new AccessDeniedException("Access Denied: Only the store owner can cancel an order that is being prepared");
             }
+            log.info("Order cancellation authorized: orderId={}, status=PREPARING, cancelledBy={} (store owner)",
+                    orderId, userId);
 
         } else if (order.getStatus() == OrderStatus.ON_THE_WAY) {
             // ON_THE_WAY: Nobody can cancel (too late - courier already has it)
-            throw new IllegalStateException("Cannot cancel an order that is already on the way.");
+            log.warn("Invalid state transition: orderId={}, currentStatus=ON_THE_WAY, attemptedAction=cancel, attemptedBy={}",
+                    orderId, userId);
+            throw new InvalidOrderStateException("Cannot cancel an order that is already on the way.");
         }
 
         // 5. All checks complete, update status
+        OrderStatus oldStatus = order.getStatus();
         order.setStatus(OrderStatus.CANCELLED);
         Order updatedOrder = orderRepository.save(order);
-        log.info("Order status updated to CANCELLED. Order ID: {}", orderId);
+        log.info("Order status updated: orderId={}, from={}, to={}, cancelledBy={}",
+                orderId, oldStatus, OrderStatus.CANCELLED, userId);
 
         // 6. Send RabbitMQ event
         OrderResponse orderResponse = orderMapper.toOrderResponse(updatedOrder);
@@ -348,10 +402,15 @@ public class OrderServiceImpl implements OrderService {
     public OrderResponse getOrderById(UUID orderId, Jwt jwt) {
         UUID userId = UUID.fromString(jwt.getSubject());
         Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new RuntimeException("Order not found with id: " + orderId)); // TODO: proper exception
+                .orElseThrow(() -> {
+                    log.warn("Order not found: orderId={}", orderId);
+                    return new ResourceNotFoundException("Order not found with id: " + orderId);
+                });
 
         if (!order.getUserId().equals(userId)) {
-            throw new RuntimeException("Access Denied"); // TODO: proper exception
+            log.warn("Access denied: User {} attempted to access order {} owned by user {}",
+                    userId, orderId, order.getUserId());
+            throw new AccessDeniedException("Access Denied: You are not authorized to view this order");
         }
 
         return orderMapper.toOrderResponse(order);
@@ -403,8 +462,9 @@ public class OrderServiceImpl implements OrderService {
 
             return (storeResponse != null && storeResponse.getOwnerId().equals(userId));
         } catch (WebClientResponseException e) {
-            log.error("Error fetching store info for storeId: {}. Error: {}", order.getStoreId(), e.getMessage());
-            return false; // If we can't verify, deny
+            log.error("Store service communication failed: storeId={}, status={}, message={}",
+                    order.getStoreId(), e.getStatusCode(), e.getMessage());
+            throw new ExternalServiceException("Cannot verify store ownership: " + e.getMessage());
         }
     }
 }

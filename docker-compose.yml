@@ -32,6 +32,17 @@ services:
       - "5434:5432"
     volumes:
       - postgres_data_order:/var/lib/postgresql/data
+  courier-service-postgres:
+    image: postgres:16-alpine
+    container_name: courier-service-postgres
+    environment:
+      POSTGRES_DB: courier_service_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres_data_courier:/var/lib/postgresql/data
 
   # Keycloak's Database
   keycloak_db:
@@ -79,5 +90,6 @@ volumes:
   postgres_data_store:
   postgres_data_user:
   postgres_data_order:
+  postgres_data_courier:
   postgres_data_keycloak:
   rabbitmq_data:

@@ -1,4 +1,4 @@
-package com.yads.storeservice.exception;
+package com.yads.common.exception;
 
 public class ResourceNotFoundException extends RuntimeException {
 
@@ -10,3 +10,5 @@ public class ResourceNotFoundException extends RuntimeException {
         super(message, cause);
     }
 }
+
+
