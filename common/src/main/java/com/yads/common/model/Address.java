@@ -12,7 +12,7 @@ public class Address {
     private String postalCode;
     private String country;
 
-    // maybe add lat/long later for geo-queries
+    // Coordinates for geo-queries
     private Double latitude;
     private Double longitude;
 }

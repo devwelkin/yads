@@ -186,7 +186,6 @@ public class OrderServiceImpl implements OrderService {
         pickupAddress.setState(storeResponse.getState());
         pickupAddress.setPostalCode(storeResponse.getPostalCode());
         pickupAddress.setCountry(storeResponse.getCountry());
-        pickupAddress.setAddressTitle("Pickup from " + storeResponse.getName());
         order.setPickupAddress(pickupAddress);
 
         log.info("Pickup address snapshotted: orderId={}, store={}, address={}, {}, {}",
