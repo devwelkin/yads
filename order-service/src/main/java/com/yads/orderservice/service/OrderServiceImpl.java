@@ -525,4 +525,21 @@ public class OrderServiceImpl implements OrderService {
             return false;
         }
     }
+
+    @Override
+    @Transactional
+    public void assignCourierToOrder(UUID orderId, UUID courierId) {
+        log.info("Assigning courier to order: orderId={}, courierId={}", orderId, courierId);
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> {
+                    log.warn("Order not found: orderId={}", orderId);
+                    return new ResourceNotFoundException("Order not found with id: " + orderId);
+                });
+
+        order.setCourierId(courierId);
+        orderRepository.save(order);
+
+        log.info("Courier assigned successfully: orderId={}, courierId={}", orderId, courierId);
+    }
 }
