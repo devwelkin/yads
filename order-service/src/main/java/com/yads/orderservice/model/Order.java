@@ -49,6 +49,18 @@ public class Order {
     @Embedded
     private Address shippingAddress;
 
+    // Pickup address (snapshot of store's address at time of order acceptance)
+    @Embedded
+    @AttributeOverrides({
+            @AttributeOverride(name = "street", column = @Column(name = "pickup_street")),
+            @AttributeOverride(name = "city", column = @Column(name = "pickup_city")),
+            @AttributeOverride(name = "state", column = @Column(name = "pickup_state")),
+            @AttributeOverride(name = "postalCode", column = @Column(name = "pickup_postal_code")),
+            @AttributeOverride(name = "country", column = @Column(name = "pickup_country")),
+            @AttributeOverride(name = "addressTitle", column = @Column(name = "pickup_address_title"))
+    })
+    private Address pickupAddress;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;

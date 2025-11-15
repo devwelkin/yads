@@ -22,5 +22,6 @@ public class OrderResponse {
     private BigDecimal totalPrice;
     private OrderStatus status;
     private Address shippingAddress;
+    private Address pickupAddress;
     private Instant createdAt;
 }

@@ -12,9 +12,9 @@ import org.mapstruct.ReportingPolicy;
 @Mapper(componentModel = "spring", unmappedTargetPolicy = ReportingPolicy.IGNORE)
 public interface OrderMapper {
 
-    // Order -> OrderResponse 
+    // Order -> OrderResponse
     @Mapping(source = "items", target = "items")
-    // Also map the nested list
+    @Mapping(source = "pickupAddress", target = "pickupAddress")
     OrderResponse toOrderResponse(Order order);
 
     // OrderItem -> OrderItemResponse

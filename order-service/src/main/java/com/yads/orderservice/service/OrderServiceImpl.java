@@ -12,6 +12,7 @@ import com.yads.orderservice.dto.ProductSnapshotDto;
 import com.yads.orderservice.exception.ExternalServiceException;
 import com.yads.orderservice.exception.InvalidOrderStateException;
 import com.yads.orderservice.mapper.OrderMapper;
+import com.yads.orderservice.model.Address;
 import com.yads.orderservice.model.Order;
 import com.yads.orderservice.model.OrderItem;
 import com.yads.orderservice.model.OrderStatus;
@@ -29,6 +30,7 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -167,15 +169,28 @@ public class OrderServiceImpl implements OrderService {
         }
 
         // 5. Critical: Is this store owner the owner of this order's store?
-        if (!isStoreOwnerOfOrder(order, userId, jwt)) {
-            log.warn("Access denied: User {} attempted to accept order {} for store {} which they don't own",
-                    userId, orderId, order.getStoreId());
-            throw new AccessDeniedException("Access Denied: You are not the owner of this store");
-        }
+        // Also fetch the store details to snapshot the pickup address
+        StoreResponse storeResponse = verifyStoreOwnershipAndGetStore(order, userId, jwt);
+        log.info("Store ownership verified: userId={}, storeId={}, storeName={}",
+                userId, order.getStoreId(), storeResponse.getName());
 
-        // 6. All checks complete, update status
+        // 6. All checks complete, update status and snapshot pickup address
         OrderStatus oldStatus = order.getStatus();
         order.setStatus(OrderStatus.PREPARING);
+
+        // Snapshot the store's pickup address into the order
+        Address pickupAddress = new Address();
+        pickupAddress.setStreet(storeResponse.getStreet());
+        pickupAddress.setCity(storeResponse.getCity());
+        pickupAddress.setState(storeResponse.getState());
+        pickupAddress.setPostalCode(storeResponse.getPostalCode());
+        pickupAddress.setCountry(storeResponse.getCountry());
+        pickupAddress.setAddressTitle("Pickup from " + storeResponse.getName());
+        order.setPickupAddress(pickupAddress);
+
+        log.info("Pickup address snapshotted: orderId={}, store={}, address={}, {}, {}",
+                orderId, storeResponse.getName(),
+                pickupAddress.getStreet(), pickupAddress.getCity(), pickupAddress.getState());
 
         // TODO: Remove this mock when courier-service is built
         // Temporarily assign a hardcoded courier for testing
@@ -445,13 +460,16 @@ public class OrderServiceImpl implements OrderService {
 
     /**
      * Helper method to verify if a user is the owner of the store associated with an order.
+     * Returns the StoreResponse if ownership is verified, throws AccessDeniedException otherwise.
      *
      * @param order the order containing the storeId
      * @param userId the user ID to verify
      * @param jwt the JWT token for authentication
-     * @return true if the user owns the store, false otherwise
+     * @return StoreResponse object if the user owns the store
+     * @throws AccessDeniedException if the user is not the store owner
+     * @throws ExternalServiceException if store service communication fails
      */
-    private boolean isStoreOwnerOfOrder(Order order, UUID userId, Jwt jwt) {
+    private StoreResponse verifyStoreOwnershipAndGetStore(Order order, UUID userId, Jwt jwt) {
         try {
             StoreResponse storeResponse = storeServiceWebClient.get()
                     .uri("/api/v1/stores/" + order.getStoreId())
@@ -460,11 +478,43 @@ public class OrderServiceImpl implements OrderService {
                     .bodyToMono(StoreResponse.class)
                     .block();
 
-            return (storeResponse != null && storeResponse.getOwnerId().equals(userId));
+            // Handle null response from store service
+            if (storeResponse == null) {
+                log.error("Store service returned null response for storeId={}", order.getStoreId());
+                throw new ExternalServiceException("Store service communication failed: received null response");
+            }
+
+            // Perform null-safe owner check
+            if (!Objects.equals(storeResponse.getOwnerId(), userId)) {
+                throw new AccessDeniedException("Access Denied: You are not the owner of this store");
+            }
+
+            return storeResponse;
         } catch (WebClientResponseException e) {
             log.error("Store service communication failed: storeId={}, status={}, message={}",
                     order.getStoreId(), e.getStatusCode(), e.getMessage());
             throw new ExternalServiceException("Cannot verify store ownership: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Helper method to check if a user is the owner of the store associated with an order.
+     * Returns true if the user owns the store, false otherwise.
+     * This is a convenience wrapper around verifyStoreOwnershipAndGetStore for cases
+     * where we only need a boolean check.
+     *
+     * @param order the order containing the storeId
+     * @param userId the user ID to verify
+     * @param jwt the JWT token for authentication
+     * @return true if the user owns the store, false otherwise
+     * @throws ExternalServiceException if store service communication fails
+     */
+    private boolean isStoreOwnerOfOrder(Order order, UUID userId, Jwt jwt) {
+        try {
+            verifyStoreOwnershipAndGetStore(order, userId, jwt);
+            return true;
+        } catch (AccessDeniedException e) {
+            return false;
         }
     }
 }

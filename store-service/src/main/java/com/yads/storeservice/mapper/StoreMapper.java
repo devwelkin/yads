@@ -24,6 +24,13 @@ public interface StoreMapper {
      * @return a mapped StoreResponse dto
      */
     @Mapping(target = "storeType", expression = "java(store.getStoreType() != null ? store.getStoreType().name() : null)")
+    @Mapping(source = "address.street", target = "street")
+    @Mapping(source = "address.city", target = "city")
+    @Mapping(source = "address.state", target = "state")
+    @Mapping(source = "address.postalCode", target = "postalCode")
+    @Mapping(source = "address.country", target = "country")
+    @Mapping(source = "address.latitude", target = "latitude")
+    @Mapping(source = "address.longitude", target = "longitude")
     StoreResponse toStoreResponse(Store store);
 
     /**
