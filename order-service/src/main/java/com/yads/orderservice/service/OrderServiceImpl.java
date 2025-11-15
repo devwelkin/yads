@@ -2,6 +2,7 @@
 package com.yads.orderservice.service;
 
 import com.yads.common.contracts.OrderAssignmentContract;
+import com.yads.common.contracts.OrderCancelledContract;
 import com.yads.common.dto.BatchReserveItem;
 import com.yads.common.dto.BatchReserveStockRequest;
 import com.yads.common.dto.BatchReserveStockResponse;
@@ -484,52 +485,18 @@ public class OrderServiceImpl implements OrderService {
             throw new InvalidOrderStateException("Cannot cancel an order that is already on the way.");
         }
 
-        // 5. CRITICAL: Restore stock if order was accepted (PREPARING or ON_THE_WAY)
-        // FIXED: Use batch-restore to restore all products in a SINGLE call (no N+1!)
-        // Store-service handles this in a single transaction - if any fails, all rollback
+        // 5. Stock restoration will be handled ASYNCHRONOUSLY by store-service
+        // When store-service receives the 'order.cancelled' event, it will:
+        // - Check if the order was PREPARING/ON_THE_WAY (stock needs restoration)
+        // - Restore stock for all items in the cancelled order
+        // This approach ensures:
+        // - Order cancellation succeeds even if store-service is down
+        // - Loose coupling between services
+        // - Eventual consistency (stock restored when store-service processes the event)
+        // - No blocking HTTP calls = better user experience
         if (oldStatus == OrderStatus.PREPARING || oldStatus == OrderStatus.ON_THE_WAY) {
-            log.info("Order was accepted (status={}), restoring stock in batch: orderId={}, itemCount={}",
+            log.info("Order was accepted (status={}), stock will be restored asynchronously by store-service: orderId={}, itemCount={}",
                     oldStatus, orderId, order.getItems().size());
-
-            // Build batch restore request
-            List<BatchReserveItem> restoreItems = order.getItems().stream()
-                    .map(item -> BatchReserveItem.builder()
-                            .productId(item.getProductId())
-                            .quantity(item.getQuantity())
-                            .build())
-                    .collect(Collectors.toList());
-
-            BatchReserveStockRequest restoreRequest = BatchReserveStockRequest.builder()
-                    .storeId(order.getStoreId())
-                    .items(restoreItems)
-                    .build();
-
-            try {
-                // SINGLE HTTP CALL to restore all products (no N+1!)
-                // Store-service handles this in a single transaction
-                // If any item fails, the entire transaction rolls back
-                storeServiceWebClient.post()
-                        .uri("/api/v1/products/batch-restore")
-                        .header("Authorization", "Bearer " + jwt.getTokenValue())
-                        .bodyValue(restoreRequest)
-                        .retrieve()
-                        .bodyToMono(Void.class)
-                        .block();
-
-                log.info("All stock restorations completed successfully in SINGLE batch call: orderId={}, itemCount={}",
-                        orderId, order.getItems().size());
-
-            } catch (WebClientResponseException e) {
-                log.error("Batch stock restoration FAILED: orderId={}, status={}, message={}",
-                        orderId, e.getStatusCode(), e.getResponseBodyAsString());
-
-                // CRITICAL: If stock restoration fails, ABORT the cancellation
-                // This ensures consistency - order remains in its current state
-                // No partial restorations exist (thanks to transaction rollback)
-                throw new ExternalServiceException(
-                        "Cannot cancel order: Failed to restore stock. " +
-                        "Please try again later or contact support. Error: " + e.getMessage());
-            }
         } else {
             log.info("Order was PENDING, no stock restoration needed: orderId={}, status={}", orderId, oldStatus);
         }
@@ -540,16 +507,33 @@ public class OrderServiceImpl implements OrderService {
         log.info("Order status updated: orderId={}, from={}, to={}, cancelledBy={}",
                 orderId, oldStatus, OrderStatus.CANCELLED, userId);
 
-        // 7. Send RabbitMQ event
-        OrderResponse orderResponse = orderMapper.toOrderResponse(updatedOrder);
+        // 7. Send RabbitMQ event with OrderCancelledContract
+        // CRITICAL: Include oldStatus to prevent GHOST INVENTORY
+        // Store-service will only restore stock if oldStatus was PREPARING or ON_THE_WAY
+        List<BatchReserveItem> itemsToRestore = updatedOrder.getItems().stream()
+                .map(item -> BatchReserveItem.builder()
+                        .productId(item.getProductId())
+                        .quantity(item.getQuantity())
+                        .build())
+                .collect(Collectors.toList());
+
+        OrderCancelledContract contract = OrderCancelledContract.builder()
+                .orderId(updatedOrder.getId())
+                .storeId(updatedOrder.getStoreId())
+                .oldStatus(oldStatus.name()) // CRITICAL: Prevents ghost inventory
+                .items(itemsToRestore)
+                .build();
+
         try {
-            rabbitTemplate.convertAndSend("order_events_exchange", "order.cancelled", orderResponse);
-            log.info("'order.cancelled' event sent to RabbitMQ. Order ID: {}", orderId);
+            rabbitTemplate.convertAndSend("order_events_exchange", "order.cancelled", contract);
+            log.info("'order.cancelled' event sent to RabbitMQ with oldStatus={}: orderId={}",
+                    oldStatus.name(), orderId);
         } catch (Exception e) {
             log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}", orderId, e.getMessage());
         }
 
-        return orderResponse;
+        // Return normal OrderResponse to user
+        return orderMapper.toOrderResponse(updatedOrder);
     }
 
     @Override
