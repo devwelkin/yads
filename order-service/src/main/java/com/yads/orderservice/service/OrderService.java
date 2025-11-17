@@ -51,4 +51,10 @@ public interface OrderService {
      * Retrieves details of a specific order (with security checks).
      */
     OrderResponse getOrderById(UUID orderId, Jwt jwt);
+
+    /**
+     * Assigns a courier to an order (internal use only).
+     * Called by courier-service after courier assignment.
+     */
+    void assignCourierToOrder(UUID orderId, UUID courierId);
 }

@@ -1,5 +1,4 @@
-// order-service/src/main/java/com/yads/orderservice/config/WebClientConfig.java
-package com.yads.orderservice.config;
+package com.yads.courierservice.config;
 
 import org.springframework.cloud.client.loadbalancer.LoadBalanced;
 import org.springframework.context.annotation.Bean;
@@ -16,7 +15,8 @@ public class WebClientConfig {
     }
 
     @Bean
-    public WebClient storeServiceWebClient(WebClient.Builder builder) {
-        return builder.baseUrl("http://store-service").build();
+    public WebClient orderServiceWebClient(WebClient.Builder builder) {
+        return builder.baseUrl("http://order-service").build();
     }
 }
+

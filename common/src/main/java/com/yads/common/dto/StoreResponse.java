@@ -21,5 +21,14 @@ public class StoreResponse {
     private UUID ownerId;
     private String storeType;
     private Boolean isActive;
+
+    // Address fields for pickup location
+    private String street;
+    private String city;
+    private String state;
+    private String postalCode;
+    private String country;
+    private Double latitude;
+    private Double longitude;
 }
 

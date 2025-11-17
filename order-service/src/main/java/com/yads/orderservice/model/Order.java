@@ -1,6 +1,7 @@
 // order-service/src/main/java/com/yads/orderservice/model/Order.java
 package com.yads.orderservice.model;
 
+import com.yads.common.model.Address;
 import jakarta.persistence.*;
 import lombok.Data;
 import org.hibernate.annotations.CreationTimestamp;
@@ -48,6 +49,19 @@ public class Order {
     // Shipping address for order delivery
     @Embedded
     private Address shippingAddress;
+
+    // Pickup address (snapshot of store's address at time of order acceptance)
+    @Embedded
+    @AttributeOverrides({
+            @AttributeOverride(name = "street", column = @Column(name = "pickup_street")),
+            @AttributeOverride(name = "city", column = @Column(name = "pickup_city")),
+            @AttributeOverride(name = "state", column = @Column(name = "pickup_state")),
+            @AttributeOverride(name = "postalCode", column = @Column(name = "pickup_postal_code")),
+            @AttributeOverride(name = "country", column = @Column(name = "pickup_country")),
+            @AttributeOverride(name = "latitude", column = @Column(name = "pickup_latitude")),
+            @AttributeOverride(name = "longitude", column = @Column(name = "pickup_longitude"))
+    })
+    private Address pickupAddress;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

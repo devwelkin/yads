@@ -18,12 +18,11 @@ public class StoreEventSubscriber {
 
     private final ProductSnapshotRepository snapshotRepository;
 
-    // "upsert" (update or insert) logic
     @RabbitHandler
     public void handleProductUpdate(ProductEventDto eventDto) {
         try {
             ProductSnapshot snapshot = snapshotRepository.findById(eventDto.getProductId())
-                    .orElse(new ProductSnapshot()); // yoksa yeni oluştur
+                    .orElse(new ProductSnapshot());
 
             snapshot.setProductId(eventDto.getProductId());
             snapshot.setStoreId(eventDto.getStoreId());
@@ -39,7 +38,6 @@ public class StoreEventSubscriber {
         }
     }
 
-    // "delete" logic
     @RabbitHandler
     public void handleProductDelete(UUID productId) {
         try {
@@ -49,6 +47,4 @@ public class StoreEventSubscriber {
             log.error("Failed to process product delete event: {}", e.getMessage());
         }
     }
-
-    // not: RabbitMQ will automatically route DTO and UUID messages to the appropriate listener
 }

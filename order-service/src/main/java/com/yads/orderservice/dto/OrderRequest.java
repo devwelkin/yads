@@ -1,7 +1,7 @@
 // order-service/src/main/java/com/yads/orderservice/dto/OrderRequest.java
 package com.yads.orderservice.dto;
 
-import com.yads.orderservice.model.Address;
+import com.yads.common.model.Address;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
