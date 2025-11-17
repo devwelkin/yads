@@ -125,29 +125,6 @@ public class ProductController {
         return ResponseEntity.ok(updatedProduct);
     }
 
-
-    @PostMapping("/api/v1/products/{productId}/reserve")
-    public ResponseEntity<ProductResponse> reserveProductStock(
-            @PathVariable UUID productId,
-            @Valid @RequestBody ReserveStockRequest request,
-            @AuthenticationPrincipal Jwt jwt) {
-
-        ProductResponse updatedProduct = productService.reserveProduct(productId, request);
-        return ResponseEntity.ok(updatedProduct);
-    }
-
-    // Restore stock (called when order is cancelled)
-    // This is a synchronous API call from order-service to ensure consistency
-    @PostMapping("/api/v1/products/{productId}/restore")
-    public ResponseEntity<Void> restoreProductStock(
-            @PathVariable UUID productId,
-            @Valid @RequestBody ReserveStockRequest request,
-            @AuthenticationPrincipal Jwt jwt) {
-
-        productService.restoreStock(productId, request.getQuantity(), request.getStoreId());
-        return ResponseEntity.ok().build();
-    }
-
     /**
      * BATCH OPERATIONS - CRITICAL for preventing N+1 problem
      * These endpoints handle multiple products in a single transaction

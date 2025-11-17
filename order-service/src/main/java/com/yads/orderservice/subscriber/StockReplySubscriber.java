@@ -74,7 +74,7 @@ public class StockReplySubscriber {
 
     /**
      * Handles failed stock reservation.
-     * Reverts order status to PENDING and notifies customer.
+     * Cancels the order and notifies customer about the cancellation.
      */
     @RabbitListener(queues = "q.order_service.stock_reservation_failed")
     @Transactional
@@ -89,23 +89,23 @@ public class StockReplySubscriber {
             return; // Idempotency: Already processed
         }
 
-        // 1. Revert order status to PENDING (store owner can try accepting again after restocking)
-        order.setStatus(OrderStatus.PENDING);
+        // 1. Cancel the order (stock reservation failed - cannot fulfill this order)
+        order.setStatus(OrderStatus.CANCELLED);
         orderRepository.save(order);
-        log.info("Order status reverted to PENDING. orderId={}", order.getId());
+        log.info("Order status set to CANCELLED due to stock reservation failure. orderId={}, reason: {}",
+                order.getId(), contract.getReason());
 
-        // 2. Notify customer about the failure using existing OrderCancelledContract
-        // (reusing the same contract for notification purposes)
+        // 2. Notify customer about the cancellation
         try {
-            OrderCancelledContract notificationContract = OrderCancelledContract.builder()
+            OrderCancelledContract cancellationContract = OrderCancelledContract.builder()
                     .orderId(contract.getOrderId())
                     .userId(contract.getUserId())
                     .storeId(order.getStoreId())
-                    .oldStatus("RESERVING_STOCK") // Important: NOT "PREPARING", so no stock restoration
+                    .oldStatus("RESERVING_STOCK") // Stock was never reserved, so no restoration needed
                     .items(List.of()) // Empty list - no stock to restore
                     .build();
 
-            rabbitTemplate.convertAndSend("order_events_exchange", "order.cancelled", notificationContract);
+            rabbitTemplate.convertAndSend("order_events_exchange", "order.cancelled", cancellationContract);
             log.info("Sent 'order.cancelled' event for customer notification. orderId={}, reason: {}",
                     order.getId(), contract.getReason());
         } catch (Exception e) {
