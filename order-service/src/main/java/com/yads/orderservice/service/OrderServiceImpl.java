@@ -426,13 +426,14 @@ public class OrderServiceImpl implements OrderService {
         List<String> roles = extractClientRoles(jwt);
         OrderStatus oldStatus = order.getStatus();
 
-        // Authorization logic with network calls performed outside transaction
+        // Authorization logic using JWT claims (ZERO network calls!)
         if (order.getStatus() == OrderStatus.PENDING) {
             boolean isCustomer = order.getUserId().equals(userId);
             boolean isStoreOwner = false;
 
             if (roles.contains("STORE_OWNER")) {
-                isStoreOwner = isStoreOwnerOfOrder(order, userId, jwt);
+                UUID storeIdFromJwt = extractStoreId(jwt);
+                isStoreOwner = storeIdFromJwt != null && storeIdFromJwt.equals(order.getStoreId());
             }
 
             if (!isCustomer && !isStoreOwner) {
@@ -444,11 +445,19 @@ public class OrderServiceImpl implements OrderService {
                     orderId, userId, isCustomer, isStoreOwner);
 
         } else if (order.getStatus() == OrderStatus.PREPARING) {
-            if (!roles.contains("STORE_OWNER") || !isStoreOwnerOfOrder(order, userId, jwt)) {
-                log.warn("Access denied: User {} attempted to cancel PREPARING order {} (storeId: {})",
-                        userId, orderId, order.getStoreId());
+            if (!roles.contains("STORE_OWNER")) {
+                log.warn("Access denied: User {} attempted to cancel PREPARING order {} without STORE_OWNER role",
+                        userId, orderId);
                 throw new AccessDeniedException("Access Denied: Only the store owner can cancel an order that is being prepared");
             }
+
+            UUID storeIdFromJwt = extractStoreId(jwt);
+            if (storeIdFromJwt == null || !storeIdFromJwt.equals(order.getStoreId())) {
+                log.warn("Access denied: User {} attempted to cancel PREPARING order {} for different store. JWT storeId={}, Order storeId={}",
+                        userId, orderId, storeIdFromJwt, order.getStoreId());
+                throw new AccessDeniedException("Access Denied: You are not the owner of this store");
+            }
+
             log.info("Order cancellation authorized: orderId={}, status=PREPARING, cancelledBy={} (store owner)",
                     orderId, userId);
 
@@ -582,42 +591,15 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    private StoreResponse verifyStoreOwnershipAndGetStore(Order order, UUID userId, Jwt jwt) {
-        try {
-            StoreResponse storeResponse = storeServiceWebClient.get()
-                    .uri("/api/v1/stores/" + order.getStoreId())
-                    .header("Authorization", "Bearer " + jwt.getTokenValue())
-                    .retrieve()
-                    .bodyToMono(StoreResponse.class)
-                    .block();
+    // REMOVED: verifyStoreOwnershipAndGetStore() - replaced with JWT claim-based authorization
+    // This synchronous HTTP call to store-service was a major coupling point and made
+    // the system fragile. If store-service was down, order operations would fail unnecessarily.
+    //
+    // New approach: Store ownership is verified via 'store_id' JWT claim.
+    // See extractStoreId() method for implementation.
 
-            // Handle null response from store service
-            if (storeResponse == null) {
-                log.error("Store service returned null response for storeId={}", order.getStoreId());
-                throw new ExternalServiceException("Store service communication failed: received null response");
-            }
-
-            // Perform null-safe owner check
-            if (!Objects.equals(storeResponse.getOwnerId(), userId)) {
-                throw new AccessDeniedException("Access Denied: You are not the owner of this store");
-            }
-
-            return storeResponse;
-        } catch (WebClientResponseException e) {
-            log.error("Store service communication failed: storeId={}, status={}, message={}",
-                    order.getStoreId(), e.getStatusCode(), e.getMessage());
-            throw new ExternalServiceException("Cannot verify store ownership: " + e.getMessage());
-        }
-    }
-
-    private boolean isStoreOwnerOfOrder(Order order, UUID userId, Jwt jwt) {
-        try {
-            verifyStoreOwnershipAndGetStore(order, userId, jwt);
-            return true;
-        } catch (AccessDeniedException e) {
-            return false;
-        }
-    }
+    // REMOVED: isStoreOwnerOfOrder() - replaced with JWT claim-based authorization
+    // See extractStoreId() method for JWT-based store ownership verification
 
     @Override
     @Transactional
