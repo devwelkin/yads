@@ -125,8 +125,23 @@ public class OrderServiceImpl implements OrderService {
         log.info("Order saved to database. ID: {}", savedOrder.getId());
 
         OrderResponse orderResponse = orderMapper.toOrderResponse(savedOrder);
+
+        // Publish order.created event as contract for notification service
         try {
-            rabbitTemplate.convertAndSend("order_events_exchange", "order.created", orderResponse);
+            com.yads.common.contracts.OrderStatusChangeContract contract =
+                com.yads.common.contracts.OrderStatusChangeContract.builder()
+                    .orderId(savedOrder.getId())
+                    .userId(savedOrder.getUserId())
+                    .storeId(savedOrder.getStoreId())
+                    .courierId(savedOrder.getCourierId())
+                    .status(savedOrder.getStatus().name())
+                    .totalPrice(savedOrder.getTotalPrice())
+                    .shippingAddress(savedOrder.getShippingAddress())
+                    .pickupAddress(savedOrder.getPickupAddress())
+                    .createdAt(savedOrder.getCreatedAt())
+                    .build();
+
+            rabbitTemplate.convertAndSend("order_events_exchange", "order.created", contract);
             log.info("'order.created' event sent to RabbitMQ. order id: {}", savedOrder.getId());
         } catch (Exception e) {
             log.error("ERROR occurred while sending event to RabbitMQ. order id: {}. error: {}", savedOrder.getId(), e.getMessage());
@@ -328,8 +343,23 @@ public class OrderServiceImpl implements OrderService {
                 orderId, oldStatus, OrderStatus.ON_THE_WAY, userId);
 
         OrderResponse orderResponse = orderMapper.toOrderResponse(updatedOrder);
+
+        // Publish order.on_the_way event as contract for notification service
         try {
-            rabbitTemplate.convertAndSend("order_events_exchange", "order.on_the_way", orderResponse);
+            com.yads.common.contracts.OrderStatusChangeContract contract =
+                com.yads.common.contracts.OrderStatusChangeContract.builder()
+                    .orderId(updatedOrder.getId())
+                    .userId(updatedOrder.getUserId())
+                    .storeId(updatedOrder.getStoreId())
+                    .courierId(updatedOrder.getCourierId())
+                    .status(updatedOrder.getStatus().name())
+                    .totalPrice(updatedOrder.getTotalPrice())
+                    .shippingAddress(updatedOrder.getShippingAddress())
+                    .pickupAddress(updatedOrder.getPickupAddress())
+                    .createdAt(updatedOrder.getCreatedAt())
+                    .build();
+
+            rabbitTemplate.convertAndSend("order_events_exchange", "order.on_the_way", contract);
             log.info("'order.on_the_way' event sent to RabbitMQ. Order ID: {}", orderId);
         } catch (Exception e) {
             log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}", orderId, e.getMessage());
@@ -382,8 +412,23 @@ public class OrderServiceImpl implements OrderService {
                 orderId, oldStatus, OrderStatus.DELIVERED, userId);
 
         OrderResponse orderResponse = orderMapper.toOrderResponse(updatedOrder);
+
+        // Publish order.delivered event as contract for notification service
         try {
-            rabbitTemplate.convertAndSend("order_events_exchange", "order.delivered", orderResponse);
+            com.yads.common.contracts.OrderStatusChangeContract contract =
+                com.yads.common.contracts.OrderStatusChangeContract.builder()
+                    .orderId(updatedOrder.getId())
+                    .userId(updatedOrder.getUserId())
+                    .storeId(updatedOrder.getStoreId())
+                    .courierId(updatedOrder.getCourierId())
+                    .status(updatedOrder.getStatus().name())
+                    .totalPrice(updatedOrder.getTotalPrice())
+                    .shippingAddress(updatedOrder.getShippingAddress())
+                    .pickupAddress(updatedOrder.getPickupAddress())
+                    .createdAt(updatedOrder.getCreatedAt())
+                    .build();
+
+            rabbitTemplate.convertAndSend("order_events_exchange", "order.delivered", contract);
             log.info("'order.delivered' event sent to RabbitMQ. Order ID: {}", orderId);
         } catch (Exception e) {
             log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}", orderId, e.getMessage());
@@ -597,8 +642,26 @@ public class OrderServiceImpl implements OrderService {
                 });
 
         order.setCourierId(courierId);
-        orderRepository.save(order);
+        Order updatedOrder = orderRepository.save(order);
 
         log.info("Courier assigned successfully: orderId={}, courierId={}", orderId, courierId);
+
+        // Publish order.assigned event for notification service
+        com.yads.common.contracts.OrderAssignedContract contract =
+            com.yads.common.contracts.OrderAssignedContract.builder()
+                .orderId(updatedOrder.getId())
+                .storeId(updatedOrder.getStoreId())
+                .courierId(courierId)
+                .userId(updatedOrder.getUserId())
+                .pickupAddress(updatedOrder.getPickupAddress())
+                .shippingAddress(updatedOrder.getShippingAddress())
+                .build();
+
+        try {
+            rabbitTemplate.convertAndSend("order_events_exchange", "order.assigned", contract);
+            log.info("'order.assigned' event sent to RabbitMQ. Order ID: {}, Courier ID: {}", orderId, courierId);
+        } catch (Exception e) {
+            log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}", orderId, e.getMessage());
+        }
     }
 }

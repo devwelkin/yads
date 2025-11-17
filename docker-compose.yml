@@ -43,6 +43,17 @@ services:
       - "5435:5432"
     volumes:
       - postgres_data_courier:/var/lib/postgresql/data
+  notification-service-postgres:
+    image: postgres:16-alpine
+    container_name: notification-service-postgres
+    environment:
+      POSTGRES_DB: notification_service_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5436:5432"
+    volumes:
+      - postgres_data_notification:/var/lib/postgresql/data
 
   # Keycloak's Database
   keycloak_db:
@@ -84,12 +95,11 @@ services:
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq/
 
-
-
 volumes:
   postgres_data_store:
   postgres_data_user:
   postgres_data_order:
   postgres_data_courier:
+  postgres_data_notification:
   postgres_data_keycloak:
   rabbitmq_data:
