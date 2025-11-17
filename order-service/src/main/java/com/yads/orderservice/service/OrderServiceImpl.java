@@ -21,13 +21,11 @@ import com.yads.orderservice.model.Order;
 import com.yads.orderservice.model.OrderItem;
 import com.yads.orderservice.model.OrderStatus;
 import com.yads.orderservice.model.ProductSnapshot;
-import com.yads.orderservice.event.OrderAcceptedEvent;
 import com.yads.orderservice.repository.OrderRepository;
 import com.yads.orderservice.repository.ProductSnapshotRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
@@ -52,7 +50,6 @@ public class OrderServiceImpl implements OrderService {
     private final RabbitTemplate rabbitTemplate;
     private final WebClient storeServiceWebClient;
     private final ProductSnapshotRepository productSnapshotRepository;
-    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -161,10 +158,17 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
-     * Accepts an order by verifying store ownership and reserving stock.
-     * Network calls are performed OUTSIDE of database transaction to prevent connection pool exhaustion.
+     * Accepts an order by initiating an async stock reservation saga.
+     * This method:
+     * 1. Verifies store ownership (synchronous GET is OK - read-only)
+     * 2. Updates order status to RESERVING_STOCK
+     * 3. Publishes stock reservation request event
+     * 4. Returns immediately (non-blocking)
+     *
+     * The saga continues in StockReplySubscriber when store-service responds.
      */
     @Override
+    @Transactional // Only for order-service's own database
     public OrderResponse acceptOrder(UUID orderId, Jwt jwt) {
         log.info("Accept order process started. Order ID: {}", orderId);
 
@@ -189,85 +193,16 @@ public class OrderServiceImpl implements OrderService {
             throw new AccessDeniedException("Access Denied: Only store owners can accept orders");
         }
 
-        // Network calls performed outside transaction
+        // Synchronous GET call is acceptable (read-only, no transaction locking)
         log.info("Verifying store ownership...");
         StoreResponse storeResponse = verifyStoreOwnershipAndGetStore(order, userId, jwt);
         log.info("Store ownership verified: userId={}, storeId={}, storeName={}",
                 userId, order.getStoreId(), storeResponse.getName());
 
-        log.info("Attempting to reserve stock for order: orderId={}, itemCount={}",
-                orderId, order.getItems().size());
+        // 1. Update order status to RESERVING_STOCK
+        order.setStatus(OrderStatus.RESERVING_STOCK);
 
-        List<BatchReserveItem> batchItems = order.getItems().stream()
-                .map(item -> BatchReserveItem.builder()
-                        .productId(item.getProductId())
-                        .quantity(item.getQuantity())
-                        .build())
-                .collect(Collectors.toList());
-
-        BatchReserveStockRequest batchRequest = BatchReserveStockRequest.builder()
-                .storeId(order.getStoreId())
-                .items(batchItems)
-                .build();
-
-        try {
-            List<BatchReserveStockResponse> responses = storeServiceWebClient.post()
-                    .uri("/api/v1/products/batch-reserve")
-                    .header("Authorization", "Bearer " + jwt.getTokenValue())
-                    .bodyValue(batchRequest)
-                    .retrieve()
-                    .bodyToMono(new org.springframework.core.ParameterizedTypeReference<List<BatchReserveStockResponse>>() {})
-                    .block();
-
-            if (responses == null || responses.isEmpty()) {
-                throw new ExternalServiceException("Store service returned empty response for batch reservation");
-            }
-
-            for (BatchReserveStockResponse response : responses) {
-                log.info("Stock reserved successfully: orderId={}, productId={}, productName={}, quantity={}, remainingStock={}",
-                        orderId, response.getProductId(), response.getProductName(),
-                        response.getReservedQuantity(), response.getRemainingStock());
-            }
-
-            log.info("All stock reservations completed successfully: orderId={}, itemCount={}",
-                    orderId, order.getItems().size());
-
-        } catch (WebClientResponseException e) {
-            log.error("Batch stock reservation failed: orderId={}, status={}, message={}",
-                    orderId, e.getStatusCode(), e.getResponseBodyAsString());
-
-            if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
-                throw new ResourceNotFoundException("One or more products not found during reservation");
-            } else if (e.getStatusCode() == HttpStatus.UNPROCESSABLE_ENTITY) {
-                throw new InsufficientStockException(
-                        "Insufficient stock for one or more products. Cannot accept order. Please cancel it.");
-            } else if (e.getStatusCode() == HttpStatus.CONFLICT || e.getStatusCode() == HttpStatus.BAD_REQUEST) {
-                String error = e.getResponseBodyAsString();
-                throw new IllegalArgumentException("Failed to reserve stock: " + error);
-            } else {
-                throw new ExternalServiceException("Store service unavailable during stock reservation: " + e.getMessage());
-            }
-        }
-
-        return updateOrderStatusToPreparing(orderId, storeResponse, userId);
-    }
-
-    @Transactional
-    private OrderResponse updateOrderStatusToPreparing(UUID orderId, StoreResponse storeResponse, UUID userId) {
-        log.info("Updating order status to PREPARING: orderId={}", orderId);
-
-        // Re-validate status to prevent race conditions
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
-
-        if (order.getStatus() != OrderStatus.PENDING) {
-            log.warn("Race condition detected: orderId={}, currentStatus={}", orderId, order.getStatus());
-            throw new InvalidOrderStateException("Order status must be PENDING to accept. Current status: " + order.getStatus());
-        }
-
-        OrderStatus oldStatus = order.getStatus();
-        order.setStatus(OrderStatus.PREPARING);
-
+        // 2. Snapshot the pickup address (needed for courier assignment later)
         Address pickupAddress = new Address();
         pickupAddress.setStreet(storeResponse.getStreet());
         pickupAddress.setCity(storeResponse.getCity());
@@ -276,29 +211,43 @@ public class OrderServiceImpl implements OrderService {
         pickupAddress.setCountry(storeResponse.getCountry());
         order.setPickupAddress(pickupAddress);
 
-        log.info("Pickup address snapshotted: orderId={}, store={}, address={}, {}, {}",
-                orderId, storeResponse.getName(),
-                pickupAddress.getStreet(), pickupAddress.getCity(), pickupAddress.getState());
-
-        order.setCourierId(null);
-
         Order updatedOrder = orderRepository.save(order);
-        log.info("Order status updated: orderId={}, from={}, to={}, user={}, storeId={}",
-                orderId, oldStatus, OrderStatus.PREPARING, userId, order.getStoreId());
+        log.info("Order status updated to RESERVING_STOCK: orderId={}", orderId);
 
-        OrderAcceptedEvent event = OrderAcceptedEvent.builder()
-                .orderId(updatedOrder.getId())
-                .storeId(updatedOrder.getStoreId())
-                .userId(updatedOrder.getUserId())
-                .pickupAddress(updatedOrder.getPickupAddress())
-                .shippingAddress(updatedOrder.getShippingAddress())
+        // 3. Build and publish stock reservation request event
+        List<BatchReserveItem> batchItems = order.getItems().stream()
+                .map(item -> BatchReserveItem.builder()
+                        .productId(item.getProductId())
+                        .quantity(item.getQuantity())
+                        .build())
+                .collect(Collectors.toList());
+
+        com.yads.common.contracts.StockReservationRequestContract contract =
+            com.yads.common.contracts.StockReservationRequestContract.builder()
+                .orderId(order.getId())
+                .storeId(order.getStoreId())
+                .userId(order.getUserId())
+                .items(batchItems)
+                .pickupAddress(pickupAddress)
+                .shippingAddress(order.getShippingAddress())
                 .build();
 
-        eventPublisher.publishEvent(event);
-        log.info("OrderAcceptedEvent published");
+        try {
+            rabbitTemplate.convertAndSend("order_events_exchange", "order.stock_reservation.requested", contract);
+            log.info("'order.stock_reservation.requested' event sent. orderId={}", orderId);
+        } catch (Exception e) {
+            log.error("Failed to send stock reservation request event. orderId={}. error: {}", orderId, e.getMessage());
+            // Event publishing failure is logged but not thrown - the order remains in RESERVING_STOCK state
+            // Consider implementing a compensation mechanism or dead letter queue handling
+        }
 
         return orderMapper.toOrderResponse(updatedOrder);
     }
+
+    // REMOVED: This method is no longer used after migrating to async saga pattern
+    // Order status is now updated in two places:
+    // 1. acceptOrder() sets status to RESERVING_STOCK
+    // 2. StockReplySubscriber.handleStockReserved() sets status to PREPARING
 
     @Override
     @Transactional
@@ -462,6 +411,11 @@ public class OrderServiceImpl implements OrderService {
                     orderId);
             throw new InvalidOrderStateException("Cannot cancel a delivered order.");
         }
+        if (order.getStatus() == OrderStatus.RESERVING_STOCK) {
+            log.warn("Invalid state transition: orderId={}, currentStatus=RESERVING_STOCK, attemptedAction=cancel",
+                    orderId);
+            throw new InvalidOrderStateException("Order is currently being processed. Please try again shortly.");
+        }
 
         UUID userId = UUID.fromString(jwt.getSubject());
         List<String> roles = extractClientRoles(jwt);
@@ -515,6 +469,9 @@ public class OrderServiceImpl implements OrderService {
         }
         if (order.getStatus() == OrderStatus.DELIVERED) {
             throw new InvalidOrderStateException("Cannot cancel a delivered order.");
+        }
+        if (order.getStatus() == OrderStatus.RESERVING_STOCK) {
+            throw new InvalidOrderStateException("Order is currently being processed. Please try again shortly.");
         }
 
         // Stock restoration handled asynchronously by store-service via RabbitMQ event

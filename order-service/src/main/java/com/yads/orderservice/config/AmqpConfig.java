@@ -40,4 +40,46 @@ public class AmqpConfig {
                 .to(storeEventsExchange)
                 .with("product.#");
     }
+
+    // Stock Reservation Saga - Outbound (Request)
+    @Bean
+    public Queue stockReservationRequestQueue() {
+        return new Queue("q.store_service.stock_reservation_request");
+    }
+
+    @Bean
+    public Binding stockReservationRequestBinding(Queue stockReservationRequestQueue, TopicExchange orderEventsExchange) {
+        return BindingBuilder
+                .bind(stockReservationRequestQueue)
+                .to(orderEventsExchange)
+                .with("order.stock_reservation.requested");
+    }
+
+    // Stock Reservation Saga - Inbound (Success Response)
+    @Bean
+    public Queue stockReservedQueue() {
+        return new Queue("q.order_service.stock_reserved");
+    }
+
+    @Bean
+    public Binding stockReservedBinding(Queue stockReservedQueue, TopicExchange orderEventsExchange) {
+        return BindingBuilder
+                .bind(stockReservedQueue)
+                .to(orderEventsExchange)
+                .with("order.stock_reserved");
+    }
+
+    // Stock Reservation Saga - Inbound (Failure Response)
+    @Bean
+    public Queue stockReservationFailedQueue() {
+        return new Queue("q.order_service.stock_reservation_failed");
+    }
+
+    @Bean
+    public Binding stockReservationFailedBinding(Queue stockReservationFailedQueue, TopicExchange orderEventsExchange) {
+        return BindingBuilder
+                .bind(stockReservationFailedQueue)
+                .to(orderEventsExchange)
+                .with("order.stock_reservation_failed");
+    }
 }

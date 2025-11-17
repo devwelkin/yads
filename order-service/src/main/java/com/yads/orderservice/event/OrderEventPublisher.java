@@ -19,26 +19,30 @@ public class OrderEventPublisher {
 
     private final RabbitTemplate rabbitTemplate;
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    public void onOrderAccepted(OrderAcceptedEvent event) {
-        log.info("Publishing order.preparing event after successful DB commit: orderId={}", event.getOrderId());
-
-        OrderAssignmentContract contract = OrderAssignmentContract.builder()
-                .orderId(event.getOrderId())
-                .storeId(event.getStoreId())
-                .userId(event.getUserId())
-                .pickupAddress(event.getPickupAddress())
-                .shippingAddress(event.getShippingAddress())
-                .build();
-
-        try {
-            rabbitTemplate.convertAndSend("order_events_exchange", "order.preparing", contract);
-            log.info("'order.preparing' event sent to RabbitMQ. Order ID: {}", event.getOrderId());
-        } catch (Exception e) {
-            log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}",
-                    event.getOrderId(), e.getMessage());
-            // Consider implementing retry mechanism or dead letter queue
-        }
-    }
+    // DISABLED: This method is no longer used after migrating to async saga pattern
+    // The 'order.preparing' event is now sent by StockReplySubscriber.handleStockReserved()
+    // after successful stock reservation
+    //
+    // @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    // public void onOrderAccepted(OrderAcceptedEvent event) {
+    //     log.info("Publishing order.preparing event after successful DB commit: orderId={}", event.getOrderId());
+    //
+    //     OrderAssignmentContract contract = OrderAssignmentContract.builder()
+    //             .orderId(event.getOrderId())
+    //             .storeId(event.getStoreId())
+    //             .userId(event.getUserId())
+    //             .pickupAddress(event.getPickupAddress())
+    //             .shippingAddress(event.getShippingAddress())
+    //             .build();
+    //
+    //     try {
+    //         rabbitTemplate.convertAndSend("order_events_exchange", "order.preparing", contract);
+    //         log.info("'order.preparing' event sent to RabbitMQ. Order ID: {}", event.getOrderId());
+    //     } catch (Exception e) {
+    //         log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}",
+    //                 event.getOrderId(), e.getMessage());
+    //         // Consider implementing retry mechanism or dead letter queue
+    //     }
+    // }
 }
 

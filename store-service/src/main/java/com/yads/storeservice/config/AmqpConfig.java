@@ -40,6 +40,20 @@ public class AmqpConfig {
     }
 
     @Bean
+    public Queue stockReservationRequestQueue() {
+        // Queue for receiving stock reservation requests from order-service
+        return new Queue("q.store_service.stock_reservation_request", true);
+    }
+
+    @Bean
+    public Binding stockReservationRequestBinding(Queue stockReservationRequestQueue, TopicExchange orderEventsExchange) {
+        // Bind queue to order.stock_reservation.requested events
+        return BindingBuilder.bind(stockReservationRequestQueue)
+                .to(orderEventsExchange)
+                .with("order.stock_reservation.requested");
+    }
+
+    @Bean
     public MessageConverter jsonMessageConverter() {
         return new Jackson2JsonMessageConverter();
     }
