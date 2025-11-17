@@ -82,4 +82,23 @@ public class AmqpConfig {
                 .to(orderEventsExchange)
                 .with("order.stock_reservation_failed");
     }
+
+    // Courier Assignment Saga - Exchange and Inbound Queue
+    @Bean
+    public TopicExchange courierEventsExchange() {
+        return new TopicExchange("courier_events_exchange");
+    }
+
+    @Bean
+    public Queue courierAssignedQueue() {
+        return new Queue("q.order_service.courier_assigned");
+    }
+
+    @Bean
+    public Binding courierAssignedBinding(Queue courierAssignedQueue, TopicExchange courierEventsExchange) {
+        return BindingBuilder
+                .bind(courierAssignedQueue)
+                .to(courierEventsExchange)
+                .with("courier.assigned");
+    }
 }

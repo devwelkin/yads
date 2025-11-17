@@ -1,15 +1,16 @@
 package com.yads.courierservice.service;
 
+import com.yads.common.contracts.CourierAssignedContract;
 import com.yads.common.contracts.OrderAssignmentContract;
 import com.yads.courierservice.model.Courier;
 import com.yads.courierservice.model.CourierStatus;
 import com.yads.courierservice.repository.CourierRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.List;
 import java.util.UUID;
@@ -19,7 +20,7 @@ import java.util.UUID;
 @Slf4j
 public class CourierAssignmentService {
 
-    private final WebClient orderServiceWebClient;
+    private final RabbitTemplate rabbitTemplate;
     private final CourierRepository courierRepository;
 
     /**
@@ -68,20 +69,27 @@ public class CourierAssignmentService {
                 log.info("Successfully assigned courier: courierId={} to orderId={}",
                         candidate.getId(), contract.getOrderId());
 
-                // Now notify order-service (outside transaction, safe to fail)
+                // Publish courier.assigned event for order-service to consume
                 try {
-                    notifyOrderService(contract.getOrderId(), candidate.getId());
-                    log.info("Successfully notified order-service: orderId={}, courierId={}",
+                    CourierAssignedContract eventContract = CourierAssignedContract.builder()
+                            .orderId(contract.getOrderId())
+                            .courierId(candidate.getId())
+                            .storeId(contract.getStoreId())
+                            .userId(contract.getUserId())
+                            .build();
+
+                    rabbitTemplate.convertAndSend("courier_events_exchange", "courier.assigned", eventContract);
+                    log.info("'courier.assigned' event published: orderId={}, courierId={}",
                             contract.getOrderId(), candidate.getId());
                     return; // SUCCESS - we're done!
 
                 } catch (Exception e) {
-                    log.error("CRITICAL: Courier marked BUSY but order-service notification FAILED. " +
-                            "Courier {} is now BUSY without an assigned order. " +
-                            "Manual reconciliation or compensation required. orderId={}, error={}",
+                    log.error("CRITICAL: Courier marked BUSY but 'courier.assigned' event publication FAILED. " +
+                            "Courier {} is now BUSY without order-service being notified. " +
+                            "RabbitMQ retry/DLQ should handle this. orderId={}, error={}",
                             candidate.getId(), contract.getOrderId(), e.getMessage());
-                    // In production: trigger compensating transaction to mark courier AVAILABLE again
-                    // Or: implement retry mechanism with exponential backoff
+                    // Event publishing failure: RabbitMQ will retry via DLQ
+                    // Or: implement compensating transaction to mark courier AVAILABLE
                     return; // Don't try other couriers - this one is already marked BUSY
                 }
 
@@ -230,23 +238,9 @@ public class CourierAssignmentService {
         return EARTH_RADIUS_KM * c;
     }
 
-    /**
-     * Notifies order-service about the courier assignment via internal API.
-     *
-     * CRITICAL: This method does NOT catch exceptions - they must propagate
-     * up to assignCourierToOrder so the optimistic lock can work correctly.
-     * If this fails, the courier should remain AVAILABLE.
-     */
-    private void notifyOrderService(UUID orderId, UUID courierId) {
-        orderServiceWebClient.patch()
-                .uri("/api/v1/internal/orders/{orderId}/assign-courier", orderId)
-                .bodyValue(courierId)
-                .retrieve()
-                .toBodilessEntity()
-                .block();
-
-        log.info("Successfully notified order-service: orderId={}, courierId={}",
-                orderId, courierId);
-    }
+    // REMOVED: notifyOrderService() REST call
+    // Replaced with async event-driven pattern (courier.assigned event)
+    // This prevents split-brain issues where courier is marked BUSY but order-service
+    // never receives the assignment due to network failures.
 }
 

@@ -14,12 +14,16 @@ public class OrderInternalController {
 
     private final OrderService orderService;
 
-    @PatchMapping("/{orderId}/assign-courier")
-    public ResponseEntity<Void> assignCourier(
-            @PathVariable UUID orderId,
-            @RequestBody UUID courierId) {
-        orderService.assignCourierToOrder(orderId, courierId);
-        return ResponseEntity.ok().build();
-    }
+    // DEPRECATED: This synchronous REST endpoint has been replaced by event-driven pattern
+    // Courier-service now publishes 'courier.assigned' events instead of making HTTP calls
+    // See: CourierAssignedSubscriber for the new async implementation
+    //
+    // @PatchMapping("/{orderId}/assign-courier")
+    // public ResponseEntity<Void> assignCourier(
+    //         @PathVariable UUID orderId,
+    //         @RequestBody UUID courierId) {
+    //     orderService.assignCourierToOrder(orderId, courierId);
+    //     return ResponseEntity.ok().build();
+    // }
 }
 

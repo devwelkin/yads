@@ -40,6 +40,12 @@ public class AmqpConfig {
                 .to(orderEventsExchange)
                 .with("order.preparing"); // Listen specifically for order.preparing events
     }
+
+    // Exchange for courier-service events
+    @Bean
+    public TopicExchange courierEventsExchange() {
+        return new TopicExchange("courier_events_exchange");
+    }
 }
 
 
