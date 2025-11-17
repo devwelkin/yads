@@ -32,7 +32,7 @@ public class StockReplySubscriber {
 
     /**
      * Handles successful stock reservation.
-     * Updates order status to PREPARING and triggers courier assignment saga.
+     * Updates order status to PREPARING, saves pickup address, and triggers courier assignment saga.
      */
     @RabbitListener(queues = "q.order_service.stock_reserved")
     @Transactional
@@ -46,10 +46,13 @@ public class StockReplySubscriber {
             return; // Idempotency: Already processed or cancelled
         }
 
-        // 1. Update order status to PREPARING
+        // 1. Snapshot pickup address from store-service
+        order.setPickupAddress(contract.getPickupAddress());
+
+        // 2. Update order status to PREPARING
         order.setStatus(OrderStatus.PREPARING);
         orderRepository.save(order);
-        log.info("Order status updated to PREPARING. orderId={}", order.getId());
+        log.info("Order status updated to PREPARING with pickup address. orderId={}", order.getId());
 
         // 2. Trigger courier assignment saga (same as old OrderEventPublisher behavior)
         OrderAssignmentContract courierContract = OrderAssignmentContract.builder()

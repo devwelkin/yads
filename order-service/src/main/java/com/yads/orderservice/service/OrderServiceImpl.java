@@ -159,13 +159,18 @@ public class OrderServiceImpl implements OrderService {
 
     /**
      * Accepts an order by initiating an async stock reservation saga.
-     * This method:
-     * 1. Verifies store ownership (synchronous GET is OK - read-only)
+     *
+     * ZERO SYNCHRONOUS CALLS - Fully async and decoupled:
+     * 1. Verifies store ownership via JWT claim (NO network call!)
      * 2. Updates order status to RESERVING_STOCK
      * 3. Publishes stock reservation request event
      * 4. Returns immediately (non-blocking)
      *
      * The saga continues in StockReplySubscriber when store-service responds.
+     *
+     * JWT Setup Required:
+     * - Store owners must have 'store_id' custom claim in their JWT
+     * - See extractStoreId() method for Keycloak configuration
      */
     @Override
     @Transactional // Only for order-service's own database
@@ -193,28 +198,28 @@ public class OrderServiceImpl implements OrderService {
             throw new AccessDeniedException("Access Denied: Only store owners can accept orders");
         }
 
-        // Synchronous GET call is acceptable (read-only, no transaction locking)
-        log.info("Verifying store ownership...");
-        StoreResponse storeResponse = verifyStoreOwnershipAndGetStore(order, userId, jwt);
-        log.info("Store ownership verified: userId={}, storeId={}, storeName={}",
-                userId, order.getStoreId(), storeResponse.getName());
+        // Verify store ownership via JWT claim (ZERO network calls!)
+        UUID storeIdFromJwt = extractStoreId(jwt);
+        if (storeIdFromJwt == null) {
+            log.error("Store owner JWT missing 'store_id' claim: userId={}", userId);
+            throw new AccessDeniedException("Access Denied: Store ID not found in token. Please contact administrator.");
+        }
+
+        if (!storeIdFromJwt.equals(order.getStoreId())) {
+            log.warn("Access denied: Store owner {} attempted to accept order for different store. " +
+                    "JWT storeId={}, Order storeId={}", userId, storeIdFromJwt, order.getStoreId());
+            throw new AccessDeniedException("Access Denied: You are not the owner of this store");
+        }
+
+        log.info("Store ownership verified via JWT: userId={}, storeId={}", userId, storeIdFromJwt);
 
         // 1. Update order status to RESERVING_STOCK
         order.setStatus(OrderStatus.RESERVING_STOCK);
-
-        // 2. Snapshot the pickup address (needed for courier assignment later)
-        Address pickupAddress = new Address();
-        pickupAddress.setStreet(storeResponse.getStreet());
-        pickupAddress.setCity(storeResponse.getCity());
-        pickupAddress.setState(storeResponse.getState());
-        pickupAddress.setPostalCode(storeResponse.getPostalCode());
-        pickupAddress.setCountry(storeResponse.getCountry());
-        order.setPickupAddress(pickupAddress);
-
         Order updatedOrder = orderRepository.save(order);
         log.info("Order status updated to RESERVING_STOCK: orderId={}", orderId);
 
-        // 3. Build and publish stock reservation request event
+        // 2. Build and publish stock reservation request event
+        // Note: pickupAddress will be added by store-service when it responds
         List<BatchReserveItem> batchItems = order.getItems().stream()
                 .map(item -> BatchReserveItem.builder()
                         .productId(item.getProductId())
@@ -228,7 +233,7 @@ public class OrderServiceImpl implements OrderService {
                 .storeId(order.getStoreId())
                 .userId(order.getUserId())
                 .items(batchItems)
-                .pickupAddress(pickupAddress)
+                .pickupAddress(null) // Will be filled by store-service
                 .shippingAddress(order.getShippingAddress())
                 .build();
 
@@ -550,6 +555,30 @@ public class OrderServiceImpl implements OrderService {
         } catch (Exception e) {
             log.error("Error extracting client roles from JWT: {}", e.getMessage());
             return List.of();
+        }
+    }
+
+    /**
+     * Extracts store_id custom claim from JWT.
+     * This claim should be added by Keycloak when a store owner logs in.
+     *
+     * Setup in Keycloak:
+     * 1. Clients → yads-backend → Client Scopes → yads-backend-dedicated
+     * 2. Add Mapper → "store_id" (User Attribute)
+     * 3. User Attribute: store_id
+     * 4. Token Claim Name: store_id
+     * 5. Claim JSON Type: String
+     */
+    private UUID extractStoreId(Jwt jwt) {
+        try {
+            String storeIdStr = jwt.getClaim("store_id");
+            if (storeIdStr == null || storeIdStr.isEmpty()) {
+                return null;
+            }
+            return UUID.fromString(storeIdStr);
+        } catch (Exception e) {
+            log.error("Error extracting store_id from JWT: {}", e.getMessage());
+            return null;
         }
     }
 
