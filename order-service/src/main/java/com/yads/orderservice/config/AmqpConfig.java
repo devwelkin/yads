@@ -101,4 +101,18 @@ public class AmqpConfig {
                 .to(courierEventsExchange)
                 .with("courier.assigned");
     }
+
+    // Courier Assignment Failure - Inbound Queue
+    @Bean
+    public Queue courierAssignmentFailedQueue() {
+        return new Queue("q.order_service.courier_assignment_failed");
+    }
+
+    @Bean
+    public Binding courierAssignmentFailedBinding(Queue courierAssignmentFailedQueue, TopicExchange courierEventsExchange) {
+        return BindingBuilder
+                .bind(courierAssignmentFailedQueue)
+                .to(courierEventsExchange)
+                .with("courier.assignment.failed");
+    }
 }

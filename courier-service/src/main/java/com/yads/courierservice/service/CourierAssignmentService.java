@@ -1,6 +1,7 @@
 package com.yads.courierservice.service;
 
 import com.yads.common.contracts.CourierAssignedContract;
+import com.yads.common.contracts.CourierAssignmentFailedContract;
 import com.yads.common.contracts.OrderAssignmentContract;
 import com.yads.courierservice.model.Courier;
 import com.yads.courierservice.model.CourierStatus;
@@ -46,7 +47,8 @@ public class CourierAssignmentService {
         List<Courier> candidateCouriers = selectBestCouriers(contract);
 
         if (candidateCouriers.isEmpty()) {
-            log.warn("No available courier found for order: orderId={}", contract.getOrderId());
+            log.error("No available courier found for order: orderId={}", contract.getOrderId());
+            publishCourierAssignmentFailed(contract, "No available couriers in the area");
             return;
         }
 
@@ -109,6 +111,8 @@ public class CourierAssignmentService {
         // All couriers were claimed by other orders
         log.error("Failed to assign ANY courier to order {}. All {} candidates were claimed during assignment process.",
                 contract.getOrderId(), candidateCouriers.size());
+        publishCourierAssignmentFailed(contract,
+                String.format("All %d available couriers were claimed by other orders", candidateCouriers.size()));
     }
 
     /**
@@ -242,5 +246,28 @@ public class CourierAssignmentService {
     // Replaced with async event-driven pattern (courier.assigned event)
     // This prevents split-brain issues where courier is marked BUSY but order-service
     // never receives the assignment due to network failures.
+
+    /**
+     * Publishes a courier.assignment.failed event when no courier can be assigned.
+     * This allows order-service to cancel the order and notify the customer.
+     */
+    private void publishCourierAssignmentFailed(OrderAssignmentContract contract, String reason) {
+        try {
+            CourierAssignmentFailedContract failureContract = CourierAssignmentFailedContract.builder()
+                    .orderId(contract.getOrderId())
+                    .userId(contract.getUserId())
+                    .storeId(contract.getStoreId())
+                    .reason(reason)
+                    .build();
+
+            rabbitTemplate.convertAndSend("courier_events_exchange", "courier.assignment.failed", failureContract);
+            log.info("'courier.assignment.failed' event published: orderId={}, reason={}",
+                    contract.getOrderId(), reason);
+        } catch (Exception e) {
+            log.error("CRITICAL: Failed to publish 'courier.assignment.failed' event. " +
+                    "Order {} will remain in PREPARING status indefinitely. Error: {}",
+                    contract.getOrderId(), e.getMessage(), e);
+        }
+    }
 }
 
