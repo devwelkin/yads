@@ -289,6 +289,7 @@ public class OrderServiceImpl implements OrderService {
         OrderAcceptedEvent event = OrderAcceptedEvent.builder()
                 .orderId(updatedOrder.getId())
                 .storeId(updatedOrder.getStoreId())
+                .userId(updatedOrder.getUserId())
                 .pickupAddress(updatedOrder.getPickupAddress())
                 .shippingAddress(updatedOrder.getShippingAddress())
                 .build();
@@ -540,6 +541,8 @@ public class OrderServiceImpl implements OrderService {
         OrderCancelledContract contract = OrderCancelledContract.builder()
                 .orderId(updatedOrder.getId())
                 .storeId(updatedOrder.getStoreId())
+                .userId(updatedOrder.getUserId())
+                .courierId(updatedOrder.getCourierId())  // nullable
                 .oldStatus(oldStatus.name())
                 .items(itemsToRestore)
                 .build();

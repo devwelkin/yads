@@ -24,6 +24,8 @@ import java.util.UUID;
 public class OrderCancelledContract {
     private UUID orderId;
     private UUID storeId;
+    private UUID userId;      // CRITICAL: customer to notify
+    private UUID courierId;   // nullable: courier to notify (if assigned)
     private String oldStatus; // CRITICAL: Used to determine if stock restoration is needed
     private List<BatchReserveItem> items;
 }

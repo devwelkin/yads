@@ -38,22 +38,21 @@ public class NotificationService {
     /**
      * Creates and sends a notification to a user.
      *
-     * Clean signature: accepts event payload object directly.
-     * Parses orderId, storeId, courierId from the payload automatically.
+     * Type-safe signature: accepts specific contract types with known methods.
+     * No brittle reflection - just direct method calls.
      *
      * @param userId Recipient user ID
      * @param type Notification type
      * @param message Human-readable message
-     * @param eventPayload Event payload object (OrderResponse, OrderAssignmentContract, etc.)
+     * @param orderId Order ID from the event
+     * @param storeId Store ID from the event (nullable)
+     * @param courierId Courier ID from the event (nullable)
+     * @param eventPayload Event payload object for JSON storage
      */
     @Transactional
-    public void createAndSendNotification(UUID userId, NotificationType type, String message, Object eventPayload) {
+    public void createAndSendNotification(UUID userId, NotificationType type, String message,
+                                         UUID orderId, UUID storeId, UUID courierId, Object eventPayload) {
         try {
-            // Parse IDs from event payload
-            UUID orderId = extractOrderId(eventPayload);
-            UUID storeId = extractStoreId(eventPayload);
-            UUID courierId = extractCourierId(eventPayload);
-
             // Serialize payload to JSON
             String payloadJson = objectMapper.writeValueAsString(eventPayload);
 
@@ -208,52 +207,5 @@ public class NotificationService {
                 .build();
     }
 
-    /**
-     * Extracts orderId from event payload using reflection.
-     */
-    private UUID extractOrderId(Object payload) {
-        try {
-            var method = payload.getClass().getMethod("getOrderId");
-            return (UUID) method.invoke(payload);
-        } catch (Exception e) {
-            if (payload.getClass().getSimpleName().contains("OrderResponse")) {
-                try {
-                    var method = payload.getClass().getMethod("getId");
-                    return (UUID) method.invoke(payload);
-                } catch (Exception ex) {
-                    log.error("Failed to extract orderId from payload: {}", payload.getClass().getName());
-                    return null;
-                }
-            }
-            log.error("Failed to extract orderId from payload: {}", payload.getClass().getName());
-            return null;
-        }
-    }
-
-    /**
-     * Extracts storeId from event payload using reflection.
-     */
-    private UUID extractStoreId(Object payload) {
-        try {
-            var method = payload.getClass().getMethod("getStoreId");
-            return (UUID) method.invoke(payload);
-        } catch (Exception e) {
-            log.debug("No storeId in payload: {}", payload.getClass().getName());
-            return null;
-        }
-    }
-
-    /**
-     * Extracts courierId from event payload using reflection.
-     */
-    private UUID extractCourierId(Object payload) {
-        try {
-            var method = payload.getClass().getMethod("getCourierId");
-            return (UUID) method.invoke(payload);
-        } catch (Exception e) {
-            log.debug("No courierId in payload: {}", payload.getClass().getName());
-            return null;
-        }
-    }
 }
 

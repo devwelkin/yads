@@ -20,6 +20,7 @@ import java.util.UUID;
 public class OrderAcceptedEvent {
     private UUID orderId;
     private UUID storeId;
+    private UUID userId;
     private Address pickupAddress;
     private Address shippingAddress;
 }

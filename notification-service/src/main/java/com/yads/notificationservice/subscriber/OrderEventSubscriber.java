@@ -35,11 +35,14 @@ public class OrderEventSubscriber {
         log.info("Received order.created event: orderId={}", contract.getOrderId());
 
         try {
-            // Notify customer
+            // Notify customer - type-safe, no reflection
             notificationService.createAndSendNotification(
                     contract.getUserId(),
                     NotificationType.ORDER_CREATED,
                     "Your order has been placed successfully and is awaiting store acceptance.",
+                    contract.getOrderId(),
+                    contract.getStoreId(),
+                    contract.getCourierId(),
                     contract
             );
 
@@ -61,23 +64,26 @@ public class OrderEventSubscriber {
      */
     @RabbitHandler
     public void handleOrderPreparing(OrderAssignmentContract contract) {
-        log.info("Received order.preparing event: orderId={}, storeId={}",
-                contract.getOrderId(), contract.getStoreId());
+        log.info("Received order.preparing event: orderId={}, storeId={}, userId={}",
+                contract.getOrderId(), contract.getStoreId(), contract.getUserId());
 
         try {
-            // We need to get the userId - but OrderAssignmentContract doesn't have it
-            // This is a limitation of the current contract
-            // For now, we'll only notify based on storeId
-            // TODO: Consider adding userId to OrderAssignmentContract or fetching order details
+            // Notify customer - now we have userId!
+            notificationService.createAndSendNotification(
+                    contract.getUserId(),
+                    NotificationType.ORDER_PREPARING,
+                    "Great news! The store has accepted your order and is preparing it.",
+                    contract.getOrderId(),
+                    contract.getStoreId(),
+                    null,  // no courier yet
+                    contract
+            );
 
-            log.info("ORDER_PREPARING event received but cannot notify customer without userId in contract");
+            log.info("ORDER_PREPARING notification sent to customer: orderId={}, userId={}",
+                    contract.getOrderId(), contract.getUserId());
 
-            // We can still notify store owner if we have a way to determine owner userId
-            // For now, we'll skip this notification or handle it differently
-            // In a real system, you might:
-            // 1. Add userId to the contract
-            // 2. Make an HTTP call to order-service to fetch order details
-            // 3. Store userId in a cache when order.created is received
+            // Store owner notification would require store owner userId
+            // Could be added in future if needed
 
         } catch (Exception e) {
             log.error("Failed to handle order.preparing event: orderId={}, error={}",
@@ -95,11 +101,14 @@ public class OrderEventSubscriber {
                 contract.getOrderId(), contract.getCourierId());
 
         try {
-            // Notify courier
+            // Notify courier - type-safe
             notificationService.createAndSendNotification(
                     contract.getCourierId(),
                     NotificationType.ORDER_ASSIGNED,
                     "You've been assigned to deliver an order. Please pick it up from the store.",
+                    contract.getOrderId(),
+                    contract.getStoreId(),
+                    contract.getCourierId(),
                     contract
             );
 
@@ -111,6 +120,9 @@ public class OrderEventSubscriber {
                     contract.getUserId(),
                     NotificationType.ORDER_ASSIGNED,
                     "A courier has been assigned to your order and will pick it up soon.",
+                    contract.getOrderId(),
+                    contract.getStoreId(),
+                    contract.getCourierId(),
                     contract
             );
 
@@ -132,11 +144,14 @@ public class OrderEventSubscriber {
         log.info("Received order.on_the_way event: orderId={}", contract.getOrderId());
 
         try {
-            // Notify customer
+            // Notify customer - type-safe
             notificationService.createAndSendNotification(
                     contract.getUserId(),
                     NotificationType.ORDER_ON_THE_WAY,
                     "Your order is on the way! The courier has picked it up and is heading to your address.",
+                    contract.getOrderId(),
+                    contract.getStoreId(),
+                    contract.getCourierId(),
                     contract
             );
 
@@ -144,7 +159,7 @@ public class OrderEventSubscriber {
                     contract.getOrderId(), contract.getUserId());
 
             // Store owner notification would require store owner userId
-            // Similar issue as order.preparing
+            // Could be added in future if needed
 
         } catch (Exception e) {
             log.error("Failed to handle order.on_the_way event: orderId={}, error={}",
@@ -161,11 +176,14 @@ public class OrderEventSubscriber {
         log.info("Received order.delivered event: orderId={}", contract.getOrderId());
 
         try {
-            // Notify customer
+            // Notify customer - type-safe
             notificationService.createAndSendNotification(
                     contract.getUserId(),
                     NotificationType.ORDER_DELIVERED,
                     "Your order has been delivered successfully. Enjoy!",
+                    contract.getOrderId(),
+                    contract.getStoreId(),
+                    contract.getCourierId(),
                     contract
             );
 
@@ -178,6 +196,9 @@ public class OrderEventSubscriber {
                         contract.getCourierId(),
                         NotificationType.ORDER_DELIVERED,
                         "Order delivery confirmed. Great job!",
+                        contract.getOrderId(),
+                        contract.getStoreId(),
+                        contract.getCourierId(),
                         contract
                 );
 
@@ -199,21 +220,42 @@ public class OrderEventSubscriber {
      */
     @RabbitHandler
     public void handleOrderCancelled(OrderCancelledContract contract) {
-        log.info("Received order.cancelled event: orderId={}, oldStatus={}",
-                contract.getOrderId(), contract.getOldStatus());
+        log.info("Received order.cancelled event: orderId={}, oldStatus={}, userId={}, courierId={}",
+                contract.getOrderId(), contract.getOldStatus(), contract.getUserId(), contract.getCourierId());
 
         try {
-            // Note: OrderCancelledContract doesn't include userId or courierId
-            // This is a limitation we need to work around
-            // In production, you'd want to either:
-            // 1. Enhance the contract to include these fields
-            // 2. Cache order details when order.created is received
-            // 3. Make HTTP call to order-service (not recommended for events)
+            // Notify customer - type-safe, now we have userId!
+            notificationService.createAndSendNotification(
+                    contract.getUserId(),
+                    NotificationType.ORDER_CANCELLED,
+                    "Your order has been cancelled.",
+                    contract.getOrderId(),
+                    contract.getStoreId(),
+                    contract.getCourierId(),
+                    contract
+            );
 
-            log.info("ORDER_CANCELLED event received but missing userId/courierId in contract");
+            log.info("ORDER_CANCELLED notification sent to customer: orderId={}, userId={}",
+                    contract.getOrderId(), contract.getUserId());
 
-            // For now, we can only log this
-            // In a real implementation, you'd need the userIds to send notifications
+            // Notify courier if they were assigned
+            if (contract.getCourierId() != null) {
+                notificationService.createAndSendNotification(
+                        contract.getCourierId(),
+                        NotificationType.ORDER_CANCELLED,
+                        "The order you were assigned to has been cancelled.",
+                        contract.getOrderId(),
+                        contract.getStoreId(),
+                        contract.getCourierId(),
+                        contract
+                );
+
+                log.info("ORDER_CANCELLED notification sent to courier: orderId={}, courierId={}",
+                        contract.getOrderId(), contract.getCourierId());
+            }
+
+            // Store owner notification would require store owner userId
+            // Could be added in future if needed
 
         } catch (Exception e) {
             log.error("Failed to handle order.cancelled event: orderId={}, error={}",

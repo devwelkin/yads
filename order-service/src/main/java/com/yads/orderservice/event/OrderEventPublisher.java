@@ -26,6 +26,7 @@ public class OrderEventPublisher {
         OrderAssignmentContract contract = OrderAssignmentContract.builder()
                 .orderId(event.getOrderId())
                 .storeId(event.getStoreId())
+                .userId(event.getUserId())
                 .pickupAddress(event.getPickupAddress())
                 .shippingAddress(event.getShippingAddress())
                 .build();

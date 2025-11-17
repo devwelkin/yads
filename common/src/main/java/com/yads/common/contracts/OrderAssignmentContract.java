@@ -11,6 +11,7 @@ import java.util.UUID;
 public class OrderAssignmentContract {
     private UUID orderId;
     private UUID storeId;
+    private UUID userId;              // CRITICAL: customer to notify
     private Address pickupAddress;    // store'un adresi
     private Address shippingAddress;  // müşterinin adresi
 }
