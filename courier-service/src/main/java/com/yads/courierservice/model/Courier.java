@@ -50,5 +50,10 @@ public class Courier {
     @UpdateTimestamp
     @Column(name = "updated_at")
     private Instant updatedAt;
+
+    // Optimistic locking: prevents race conditions during concurrent courier assignments
+    @Version
+    @Column(name = "version")
+    private Long version;
 }
 
