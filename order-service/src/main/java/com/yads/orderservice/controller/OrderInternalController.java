@@ -14,7 +14,6 @@ public class OrderInternalController {
 
     private final OrderService orderService;
 
-    // This endpoint is used for internal communication between order-service and courier-service.
     @PatchMapping("/{orderId}/assign-courier")
     public ResponseEntity<Void> assignCourier(
             @PathVariable UUID orderId,

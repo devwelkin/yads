@@ -25,25 +25,16 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    /**
-     * Generate a unique correlation ID for tracking requests
-     */
     private String generateCorrelationId() {
         return UUID.randomUUID().toString();
     }
 
-    /**
-     * Handles ResourceNotFoundException (404 - Not Found)
-     * Thrown when a requested resource (Order, Product, Store) is not found
-     * Note: Logging is done at service layer with more context
-     */
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleResourceNotFoundException(
             ResourceNotFoundException ex,
             HttpServletRequest request) {
 
         String correlationId = generateCorrelationId();
-        // No logging here - service layer has better context
 
         ErrorResponse errorResponse = ErrorResponse.builder()
                 .status(HttpStatus.NOT_FOUND.value())
@@ -58,19 +49,12 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(errorResponse, HttpStatus.NOT_FOUND);
     }
 
-    /**
-     * Handles AccessDeniedException (403 - Forbidden)
-     * Thrown when user tries to access/modify an order they don't own
-     * or when role-based access is denied
-     * Note: Logging is done at service layer with more context (user ID, order ID, etc.)
-     */
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleAccessDeniedException(
             AccessDeniedException ex,
             HttpServletRequest request) {
 
         String correlationId = generateCorrelationId();
-        // No logging here - service layer has better context with IDs
 
         ErrorResponse errorResponse = ErrorResponse.builder()
                 .status(HttpStatus.FORBIDDEN.value())
@@ -85,18 +69,12 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(errorResponse, HttpStatus.FORBIDDEN);
     }
 
-    /**
-     * Handles InvalidOrderStateException (422 - Unprocessable Entity)
-     * Thrown when trying to perform an invalid state transition
-     * Note: Logging is done at service layer with more context
-     */
     @ExceptionHandler(InvalidOrderStateException.class)
     public ResponseEntity<ErrorResponse> handleInvalidOrderStateException(
             InvalidOrderStateException ex,
             HttpServletRequest request) {
 
         String correlationId = generateCorrelationId();
-        // No logging here - service layer has better context with order state details
 
         ErrorResponse errorResponse = ErrorResponse.builder()
                 .status(HttpStatus.UNPROCESSABLE_ENTITY.value())
@@ -111,18 +89,12 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(errorResponse, HttpStatus.UNPROCESSABLE_ENTITY);
     }
 
-    /**
-     * Handles InsufficientStockException (422 - Unprocessable Entity)
-     * Thrown when trying to accept an order but there is insufficient stock
-     * Note: Logging is done at service layer with more context
-     */
     @ExceptionHandler(InsufficientStockException.class)
     public ResponseEntity<ErrorResponse> handleInsufficientStockException(
             InsufficientStockException ex,
             HttpServletRequest request) {
 
         String correlationId = generateCorrelationId();
-        // No logging here - service layer has better context with product details
 
         ErrorResponse errorResponse = ErrorResponse.builder()
                 .status(HttpStatus.UNPROCESSABLE_ENTITY.value())
@@ -137,18 +109,12 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(errorResponse, HttpStatus.UNPROCESSABLE_ENTITY);
     }
 
-    /**
-     * Handles ExternalServiceException (502 - Bad Gateway)
-     * Thrown when communication with external services (store-service) fails
-     * Note: Logging is done at service layer with more context
-     */
     @ExceptionHandler(ExternalServiceException.class)
     public ResponseEntity<ErrorResponse> handleExternalServiceException(
             ExternalServiceException ex,
             HttpServletRequest request) {
 
         String correlationId = generateCorrelationId();
-        // No logging here - service layer has better context
 
         ErrorResponse errorResponse = ErrorResponse.builder()
                 .status(HttpStatus.BAD_GATEWAY.value())
@@ -163,11 +129,6 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(errorResponse, HttpStatus.BAD_GATEWAY);
     }
 
-    /**
-     * Handles MethodArgumentNotValidException (400 - Bad Request)
-     * Thrown when request validation fails (@Valid annotation)
-     * Returns all field validation errors
-     */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ValidationErrorResponse> handleValidationException(
             MethodArgumentNotValidException ex,
@@ -197,18 +158,12 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
 
-    /**
-     * Handles IllegalArgumentException (400 - Bad Request)
-     * Thrown when method receives invalid arguments
-     * Note: Logging is done at service layer with more context
-     */
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ErrorResponse> handleIllegalArgumentException(
             IllegalArgumentException ex,
             HttpServletRequest request) {
 
         String correlationId = generateCorrelationId();
-        // No logging here - service layer has better context
 
         ErrorResponse errorResponse = ErrorResponse.builder()
                 .status(HttpStatus.BAD_REQUEST.value())
@@ -223,24 +178,17 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
 
-    /**
-     * Handles all other unexpected exceptions (500 - Internal Server Error)
-     * Generic handler for any unhandled exceptions
-     */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGlobalException(
             Exception ex,
             HttpServletRequest request) {
 
         String correlationId = generateCorrelationId();
-        // Log the full exception with stack trace for debugging
         log.error("[{}] Unexpected error occurred - Path: {} - Exception: {}",
                 correlationId,
                 request.getRequestURI(),
                 ex.getMessage(),
                 ex);
-
-        // Return generic message to client (avoid exposing internal details)
         ErrorResponse errorResponse = ErrorResponse.builder()
                 .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
                 .error(HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase())

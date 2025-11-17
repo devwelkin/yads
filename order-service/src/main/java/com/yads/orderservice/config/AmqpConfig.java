@@ -13,8 +13,6 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class AmqpConfig {
 
-    // TopicExchange allows flexible routing keys
-    // like 'order.created' or 'order.cancelled'
     @Bean
     public TopicExchange orderEventsExchange() {
         return new TopicExchange("order_events_exchange");
@@ -32,17 +30,14 @@ public class AmqpConfig {
 
     @Bean
     public Queue productUpdateQueue() {
-        // Queue that order-service will listen to
         return new Queue("q.order_service.product_updates");
     }
 
     @Bean
     public Binding productUpdateBinding(Queue productUpdateQueue, TopicExchange storeEventsExchange) {
-        // Route all messages starting with "product.*" coming to "store_events_exchange"
-        // to "productUpdateQueue"
         return BindingBuilder
                 .bind(productUpdateQueue)
                 .to(storeEventsExchange)
-                .with("product.#"); // # = wildcard (created, updated, stock.updated, vs.)
+                .with("product.#");
     }
 }
