@@ -70,4 +70,11 @@ public class Order {
     @UpdateTimestamp
     @Column(name = "updated_at")
     private Instant updatedAt;
+
+    // Optimistic locking: prevents zombie orders and lost updates
+    // When two concurrent transactions try to modify the same order,
+    // the second one will fail with OptimisticLockingFailureException
+    @Version
+    @Column(name = "version")
+    private Long version;
 }

@@ -8,6 +8,7 @@ import com.yads.common.exception.ResourceNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
@@ -176,6 +177,35 @@ public class GlobalExceptionHandler {
                 .build();
 
         return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
+    }
+
+    /**
+     * Handles optimistic locking failures (concurrent modifications).
+     * This prevents "zombie orders" where a customer cancels an order
+     * but a store owner simultaneously accepts it.
+     *
+     * The user-friendly message tells them to retry their operation.
+     */
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<ErrorResponse> handleOptimisticLockingFailureException(
+            OptimisticLockingFailureException ex,
+            HttpServletRequest request) {
+
+        String correlationId = generateCorrelationId();
+        log.warn("[{}] Optimistic locking conflict detected - Path: {} - User should retry",
+                correlationId, request.getRequestURI());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .status(HttpStatus.CONFLICT.value())
+                .error(HttpStatus.CONFLICT.getReasonPhrase())
+                .message("The order was modified by another user. Please refresh and try again.")
+                .path(request.getRequestURI())
+                .timestamp(LocalDateTime.now())
+                .errorCode("CONCURRENT_MODIFICATION")
+                .correlationId(correlationId)
+                .build();
+
+        return new ResponseEntity<>(errorResponse, HttpStatus.CONFLICT);
     }
 
     @ExceptionHandler(Exception.class)
