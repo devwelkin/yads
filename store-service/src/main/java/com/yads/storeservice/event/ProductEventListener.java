@@ -1,33 +1,27 @@
 package com.yads.storeservice.event;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yads.common.contracts.ProductEventDto;
+import com.yads.storeservice.model.OutboxEvent;
+import com.yads.storeservice.repository.OutboxRepository;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.amqp.core.TopicExchange;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
+
+import java.time.LocalDateTime;
 
 /**
- * Listens to product events and publishes them to RabbitMQ.
+ * Listens to product events and saves them to the Outbox table.
  *
- * CRITICAL: This listener uses @TransactionalEventListener with AFTER_COMMIT phase.
- * This ensures that RabbitMQ events are ONLY sent AFTER the database transaction
- * successfully commits. If the transaction rolls back, NO events are sent.
+ * REFACTORED: Now uses the Outbox Pattern to ensure data consistency.
+ * Instead of publishing directly to RabbitMQ (which could fail after DB
+ * commit),
+ * we save the event to the 'outbox_events' table within the SAME transaction.
  *
- * This prevents data inconsistency between the database and external services.
- *
- * Example scenario:
- * 1. Batch reserve 2 products: Product A (stock=10) and Product B (stock=5)
- * 2. Request: Reserve 2 of Product A and 10 of Product B
- * 3. Product A stock updated (10->8), saved to DB
- * 4. Product A update event is SCHEDULED (not sent yet)
- * 5. Product B fails (insufficient stock), exception thrown
- * 6. Transaction rolls back, Product A stock returns to 10
- * 7. AFTER_COMMIT listener is NOT called, so Product A event is NEVER sent
- * 8. Result: Consistent state - DB has stock=10, no event sent
+ * The OutboxPublisher job will later pick up these events and send them to
+ * RabbitMQ.
  */
 @Component
 @RequiredArgsConstructor
@@ -35,14 +29,13 @@ public class ProductEventListener {
 
     private static final Logger log = LoggerFactory.getLogger(ProductEventListener.class);
 
-    private final RabbitTemplate rabbitTemplate;
-    private final TopicExchange storeEventsExchange;
+    private final OutboxRepository outboxRepository;
+    private final ObjectMapper objectMapper;
 
     /**
-     * Handles product update events AFTER the transaction commits.
-     * If the transaction rolls back, this method is NOT called.
+     * Handles product update events synchronously within the transaction.
      */
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    @EventListener
     public void handleProductUpdateEvent(ProductUpdateEvent event) {
         try {
             ProductEventDto eventDto = ProductEventDto.builder()
@@ -54,44 +47,57 @@ public class ProductEventListener {
                     .storeId(event.getProduct().getCategory().getStore().getId())
                     .build();
 
-            rabbitTemplate.convertAndSend(
-                    storeEventsExchange.getName(),
+            saveOutboxEvent(
+                    event.getProduct().getId().toString(),
                     event.getRoutingKey(),
-                    eventDto
-            );
+                    eventDto);
 
-            log.debug("Published product update event: productId={}, routingKey={}, stock={}",
-                    event.getProduct().getId(), event.getRoutingKey(), event.getProduct().getStock());
+            log.info("Saved product update event to Outbox: productId={}, routingKey={}",
+                    event.getProduct().getId(), event.getRoutingKey());
 
         } catch (Exception e) {
-            // Log error but don't throw - we don't want to fail the transaction
-            // at this point (it's already committed)
-            log.error("Failed to publish product update event: productId={}, routingKey={}",
-                    event.getProduct().getId(), event.getRoutingKey(), e);
+            log.error("Failed to save product update event to Outbox: productId={}",
+                    event.getProduct().getId(), e);
+            // Throwing exception here will rollback the transaction, which is what we want!
+            throw new RuntimeException("Failed to save outbox event", e);
         }
     }
 
     /**
-     * Handles product delete events AFTER the transaction commits.
-     * If the transaction rolls back, this method is NOT called.
+     * Handles product delete events synchronously within the transaction.
      */
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    @EventListener
     public void handleProductDeleteEvent(ProductDeleteEvent event) {
         try {
-            rabbitTemplate.convertAndSend(
-                    storeEventsExchange.getName(),
+            saveOutboxEvent(
+                    event.getProductId().toString(),
                     "product.deleted",
-                    event.getProductId()
+                    event.getProductId() // Payload is just the UUID
             );
 
-            log.debug("Published product delete event: productId={}", event.getProductId());
+            log.info("Saved product delete event to Outbox: productId={}", event.getProductId());
 
         } catch (Exception e) {
-            // Log error but don't throw - we don't want to fail the transaction
-            // at this point (it's already committed)
-            log.error("Failed to publish product delete event: productId={}",
+            log.error("Failed to save product delete event to Outbox: productId={}",
                     event.getProductId(), e);
+            throw new RuntimeException("Failed to save outbox event", e);
+        }
+    }
+
+    private void saveOutboxEvent(String aggregateId, String type, Object payloadObj) {
+        try {
+            String payload = objectMapper.writeValueAsString(payloadObj);
+            OutboxEvent outboxEvent = OutboxEvent.builder()
+                    .aggregateType("PRODUCT")
+                    .aggregateId(aggregateId)
+                    .type(type)
+                    .payload(payload)
+                    .createdAt(LocalDateTime.now())
+                    .processed(false)
+                    .build();
+            outboxRepository.save(outboxEvent);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize/save outbox event", e);
         }
     }
 }
-
