@@ -40,23 +40,6 @@ spring:
       ddl-auto: update
 
 
-# Logging Configuration
-logging:
-  level:
-    root: INFO
-    com.yads.storeservice: INFO
-    com.yads.storeservice.exception: INFO
-    com.yads.storeservice.services: DEBUG
-    org.springframework.web: WARN
-    org.hibernate.SQL: WARN
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
-    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
-  file:
-    name: logs/store-service.log
-    max-size: 10MB
-    max-history: 30
-
 
 eureka:
   client:
