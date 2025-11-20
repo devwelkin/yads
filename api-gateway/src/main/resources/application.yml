@@ -30,7 +30,7 @@ spring:
                 - StripPrefix=1
 
             - id: order-service-route
-              uri: lb://order-service
+              uri: lb://ORDER-SERVICE
               predicates:
                 - Path=/order-service/**
               filters:
