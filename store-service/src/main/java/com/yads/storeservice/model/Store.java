@@ -4,8 +4,11 @@ import com.yads.common.model.Address;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.ToString;
+
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
@@ -15,7 +18,9 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "stores")
-@Data
+@Getter
+@Setter
+@ToString(onlyExplicitlyIncluded = true)
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -25,17 +30,18 @@ public class Store {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(nullable = false , unique = true)
+    @Column(nullable = false, unique = true)
     private String name;
     private String description;
 
-    @Column(name = "owner_id", nullable = false )
+    @Column(name = "owner_id", nullable = false)
     private UUID ownerId;
 
     @Embedded
     private Address address;
 
-    @Column(name = "is_active", nullable = false )
+    @Builder.Default
+    @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
 
     @Enumerated(EnumType.STRING)

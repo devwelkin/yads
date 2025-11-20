@@ -9,10 +9,12 @@ import org.springframework.stereotype.Service;
 
 import java.util.Collections;
 import java.util.UUID;
+
 @Service
 @RequiredArgsConstructor
 public class UserServiceImpl implements UserService {
     private final UserRepository userRepository;
+
     public UserResponse processUserLogin(Jwt jwt) {
         UUID userId = UUID.fromString(jwt.getSubject());
 

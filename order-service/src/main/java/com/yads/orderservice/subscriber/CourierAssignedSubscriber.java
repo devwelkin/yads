@@ -12,13 +12,12 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.UUID;
-
 /**
  * Subscriber that handles courier assignment events from courier-service.
  * Completes the async saga by updating the order's courierID.
  *
- * This replaces the synchronous REST PATCH endpoint that caused split-brain issues.
+ * This replaces the synchronous REST PATCH endpoint that caused split-brain
+ * issues.
  */
 @Component
 @RequiredArgsConstructor
@@ -51,7 +50,8 @@ public class CourierAssignedSubscriber {
                         contract.getOrderId(), contract.getCourierId());
                 return; // Duplicate event - already processed
             } else {
-                log.warn("Order already has a DIFFERENT courier assigned! orderId={}, existingCourierId={}, newCourierId={}",
+                log.warn(
+                        "Order already has a DIFFERENT courier assigned! orderId={}, existingCourierId={}, newCourierId={}",
                         contract.getOrderId(), order.getCourierId(), contract.getCourierId());
                 // This should NEVER happen with proper locking in courier-service
                 // Keep existing courier assignment
@@ -77,15 +77,15 @@ public class CourierAssignedSubscriber {
 
         // Publish order.assigned event for notification-service
         try {
-            com.yads.common.contracts.OrderAssignedContract notificationContract =
-                    com.yads.common.contracts.OrderAssignedContract.builder()
-                            .orderId(order.getId())
-                            .storeId(order.getStoreId())
-                            .courierId(contract.getCourierId())
-                            .userId(order.getUserId())
-                            .pickupAddress(order.getPickupAddress())
-                            .shippingAddress(order.getShippingAddress())
-                            .build();
+            com.yads.common.contracts.OrderAssignedContract notificationContract = com.yads.common.contracts.OrderAssignedContract
+                    .builder()
+                    .orderId(order.getId())
+                    .storeId(order.getStoreId())
+                    .courierId(contract.getCourierId())
+                    .userId(order.getUserId())
+                    .pickupAddress(order.getPickupAddress())
+                    .shippingAddress(order.getShippingAddress())
+                    .build();
 
             rabbitTemplate.convertAndSend("order_events_exchange", "order.assigned", notificationContract);
             log.info("'order.assigned' event sent to notification-service. orderId={}, courierId={}",
@@ -97,4 +97,3 @@ public class CourierAssignedSubscriber {
         }
     }
 }
-

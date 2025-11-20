@@ -2,7 +2,10 @@ package com.yads.userservice.model;
 
 import com.yads.common.model.Address;
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
+
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
@@ -12,13 +15,14 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "users")
-@Data
+@Getter
+@Setter
+@ToString(onlyExplicitlyIncluded = true)
 
 public class User {
 
     @Id // This IS the Keycloak subject ID ('sub' claim)
     private UUID id;
-
 
     // The user has many addresses. when a user is deleted, their addresses go too.
     @ElementCollection(fetch = FetchType.LAZY)

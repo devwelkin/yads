@@ -3,12 +3,17 @@ package com.yads.storeservice.model;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.ToString;
+
 import java.math.BigDecimal;
 import java.util.UUID;
 
-@Data
+@Getter
+@Setter
+@ToString(onlyExplicitlyIncluded = true)
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -29,11 +34,13 @@ public class Product {
     private BigDecimal price;
 
     // basic stock tracking
+    @Builder.Default
     @Column(nullable = false)
     private Integer stock = 0;
 
     private String imageUrl;
 
+    @Builder.Default
     @Column(name = "is_available", nullable = false)
     private Boolean isAvailable = true;
 

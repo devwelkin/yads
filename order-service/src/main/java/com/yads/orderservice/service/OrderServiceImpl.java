@@ -1,20 +1,14 @@
 // order-service/src/main/java/com/yads/orderservice/service/OrderServiceImpl.java
 package com.yads.orderservice.service;
 
-import com.yads.common.contracts.OrderAssignmentContract;
+import com.yads.common.contracts.OrderStatusChangeContract;
 import com.yads.common.contracts.OrderCancelledContract;
 import com.yads.common.dto.BatchReserveItem;
-import com.yads.common.dto.BatchReserveStockRequest;
-import com.yads.common.dto.BatchReserveStockResponse;
-import com.yads.common.dto.StoreResponse;
 import com.yads.common.exception.AccessDeniedException;
-import com.yads.common.exception.InsufficientStockException;
 import com.yads.common.exception.ResourceNotFoundException;
-import com.yads.common.model.Address;
 import com.yads.orderservice.dto.OrderItemRequest;
 import com.yads.orderservice.dto.OrderRequest;
 import com.yads.orderservice.dto.OrderResponse;
-import com.yads.orderservice.exception.ExternalServiceException;
 import com.yads.orderservice.exception.InvalidOrderStateException;
 import com.yads.orderservice.mapper.OrderMapper;
 import com.yads.orderservice.model.Order;
@@ -26,17 +20,13 @@ import com.yads.orderservice.repository.ProductSnapshotRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
-
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -48,7 +38,6 @@ public class OrderServiceImpl implements OrderService {
     private final OrderRepository orderRepository;
     private final OrderMapper orderMapper;
     private final RabbitTemplate rabbitTemplate;
-    private final WebClient storeServiceWebClient;
     private final ProductSnapshotRepository productSnapshotRepository;
 
     @Override
@@ -69,8 +58,7 @@ public class OrderServiceImpl implements OrderService {
                 .findAllById(productIds).stream()
                 .collect(Collectors.toMap(
                         ProductSnapshot::getProductId,
-                        snapshot -> snapshot
-                ));
+                        snapshot -> snapshot));
 
         log.info("Fetched {} product snapshots from local cache", productSnapshots.size());
 
@@ -125,8 +113,8 @@ public class OrderServiceImpl implements OrderService {
 
         // Publish order.created event as contract for notification service
         try {
-            com.yads.common.contracts.OrderStatusChangeContract contract =
-                com.yads.common.contracts.OrderStatusChangeContract.builder()
+            com.yads.common.contracts.OrderStatusChangeContract contract = com.yads.common.contracts.OrderStatusChangeContract
+                    .builder()
                     .orderId(savedOrder.getId())
                     .userId(savedOrder.getUserId())
                     .storeId(savedOrder.getStoreId())
@@ -141,7 +129,8 @@ public class OrderServiceImpl implements OrderService {
             rabbitTemplate.convertAndSend("order_events_exchange", "order.created", contract);
             log.info("'order.created' event sent to RabbitMQ. order id: {}", savedOrder.getId());
         } catch (Exception e) {
-            log.error("ERROR occurred while sending event to RabbitMQ. order id: {}. error: {}", savedOrder.getId(), e.getMessage());
+            log.error("ERROR occurred while sending event to RabbitMQ. order id: {}. error: {}", savedOrder.getId(),
+                    e.getMessage());
         }
 
         return orderResponse;
@@ -186,7 +175,8 @@ public class OrderServiceImpl implements OrderService {
         if (order.getStatus() != OrderStatus.PENDING) {
             log.warn("Invalid state transition: orderId={}, currentStatus={}, attemptedAction=accept",
                     orderId, order.getStatus());
-            throw new InvalidOrderStateException("Order status must be PENDING to accept. Current status: " + order.getStatus());
+            throw new InvalidOrderStateException(
+                    "Order status must be PENDING to accept. Current status: " + order.getStatus());
         }
 
         UUID userId = UUID.fromString(jwt.getSubject());
@@ -202,7 +192,8 @@ public class OrderServiceImpl implements OrderService {
         UUID storeIdFromJwt = extractStoreId(jwt);
         if (storeIdFromJwt == null) {
             log.error("Store owner JWT missing 'store_id' claim: userId={}", userId);
-            throw new AccessDeniedException("Access Denied: Store ID not found in token. Please contact administrator.");
+            throw new AccessDeniedException(
+                    "Access Denied: Store ID not found in token. Please contact administrator.");
         }
 
         if (!storeIdFromJwt.equals(order.getStoreId())) {
@@ -227,8 +218,8 @@ public class OrderServiceImpl implements OrderService {
                         .build())
                 .collect(Collectors.toList());
 
-        com.yads.common.contracts.StockReservationRequestContract contract =
-            com.yads.common.contracts.StockReservationRequestContract.builder()
+        com.yads.common.contracts.StockReservationRequestContract contract = com.yads.common.contracts.StockReservationRequestContract
+                .builder()
                 .orderId(order.getId())
                 .storeId(order.getStoreId())
                 .userId(order.getUserId())
@@ -242,7 +233,8 @@ public class OrderServiceImpl implements OrderService {
             log.info("'order.stock_reservation.requested' event sent. orderId={}", orderId);
         } catch (Exception e) {
             log.error("Failed to send stock reservation request event. orderId={}. error: {}", orderId, e.getMessage());
-            // Event publishing failure is logged but not thrown - the order remains in RESERVING_STOCK state
+            // Event publishing failure is logged but not thrown - the order remains in
+            // RESERVING_STOCK state
             // Consider implementing a compensation mechanism or dead letter queue handling
         }
 
@@ -268,7 +260,8 @@ public class OrderServiceImpl implements OrderService {
         if (order.getStatus() != OrderStatus.PREPARING) {
             log.warn("Invalid state transition: orderId={}, currentStatus={}, attemptedAction=pickup",
                     orderId, order.getStatus());
-            throw new InvalidOrderStateException("Order status must be PREPARING to pickup. Current status: " + order.getStatus());
+            throw new InvalidOrderStateException(
+                    "Order status must be PREPARING to pickup. Current status: " + order.getStatus());
         }
 
         UUID userId = UUID.fromString(jwt.getSubject());
@@ -301,8 +294,8 @@ public class OrderServiceImpl implements OrderService {
 
         // Publish order.on_the_way event as contract for notification service
         try {
-            com.yads.common.contracts.OrderStatusChangeContract contract =
-                com.yads.common.contracts.OrderStatusChangeContract.builder()
+            com.yads.common.contracts.OrderStatusChangeContract contract = com.yads.common.contracts.OrderStatusChangeContract
+                    .builder()
                     .orderId(updatedOrder.getId())
                     .userId(updatedOrder.getUserId())
                     .storeId(updatedOrder.getStoreId())
@@ -317,7 +310,8 @@ public class OrderServiceImpl implements OrderService {
             rabbitTemplate.convertAndSend("order_events_exchange", "order.on_the_way", contract);
             log.info("'order.on_the_way' event sent to RabbitMQ. Order ID: {}", orderId);
         } catch (Exception e) {
-            log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}", orderId, e.getMessage());
+            log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}", orderId,
+                    e.getMessage());
         }
 
         return orderResponse;
@@ -337,7 +331,8 @@ public class OrderServiceImpl implements OrderService {
         if (order.getStatus() != OrderStatus.ON_THE_WAY) {
             log.warn("Invalid state transition: orderId={}, currentStatus={}, attemptedAction=deliver",
                     orderId, order.getStatus());
-            throw new InvalidOrderStateException("Order status must be ON_THE_WAY to deliver. Current status: " + order.getStatus());
+            throw new InvalidOrderStateException(
+                    "Order status must be ON_THE_WAY to deliver. Current status: " + order.getStatus());
         }
 
         UUID userId = UUID.fromString(jwt.getSubject());
@@ -370,8 +365,8 @@ public class OrderServiceImpl implements OrderService {
 
         // Publish order.delivered event as contract for notification service
         try {
-            com.yads.common.contracts.OrderStatusChangeContract contract =
-                com.yads.common.contracts.OrderStatusChangeContract.builder()
+            OrderStatusChangeContract contract = OrderStatusChangeContract
+                    .builder()
                     .orderId(updatedOrder.getId())
                     .userId(updatedOrder.getUserId())
                     .storeId(updatedOrder.getStoreId())
@@ -386,7 +381,8 @@ public class OrderServiceImpl implements OrderService {
             rabbitTemplate.convertAndSend("order_events_exchange", "order.delivered", contract);
             log.info("'order.delivered' event sent to RabbitMQ. Order ID: {}", orderId);
         } catch (Exception e) {
-            log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}", orderId, e.getMessage());
+            log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}", orderId,
+                    e.getMessage());
         }
 
         return orderResponse;
@@ -439,21 +435,25 @@ public class OrderServiceImpl implements OrderService {
             if (!isCustomer && !isStoreOwner) {
                 log.warn("Access denied: User {} attempted to cancel PENDING order {} (owner: {}, storeId: {})",
                         userId, orderId, order.getUserId(), order.getStoreId());
-                throw new AccessDeniedException("Access Denied: Only the customer or store owner can cancel a pending order");
+                throw new AccessDeniedException(
+                        "Access Denied: Only the customer or store owner can cancel a pending order");
             }
-            log.info("Order cancellation authorized: orderId={}, status=PENDING, cancelledBy={}, isCustomer={}, isStoreOwner={}",
+            log.info(
+                    "Order cancellation authorized: orderId={}, status=PENDING, cancelledBy={}, isCustomer={}, isStoreOwner={}",
                     orderId, userId, isCustomer, isStoreOwner);
 
         } else if (order.getStatus() == OrderStatus.PREPARING) {
             if (!roles.contains("STORE_OWNER")) {
                 log.warn("Access denied: User {} attempted to cancel PREPARING order {} without STORE_OWNER role",
                         userId, orderId);
-                throw new AccessDeniedException("Access Denied: Only the store owner can cancel an order that is being prepared");
+                throw new AccessDeniedException(
+                        "Access Denied: Only the store owner can cancel an order that is being prepared");
             }
 
             UUID storeIdFromJwt = extractStoreId(jwt);
             if (storeIdFromJwt == null || !storeIdFromJwt.equals(order.getStoreId())) {
-                log.warn("Access denied: User {} attempted to cancel PREPARING order {} for different store. JWT storeId={}, Order storeId={}",
+                log.warn(
+                        "Access denied: User {} attempted to cancel PREPARING order {} for different store. JWT storeId={}, Order storeId={}",
                         userId, orderId, storeIdFromJwt, order.getStoreId());
                 throw new AccessDeniedException("Access Denied: You are not the owner of this store");
             }
@@ -462,7 +462,8 @@ public class OrderServiceImpl implements OrderService {
                     orderId, userId);
 
         } else if (order.getStatus() == OrderStatus.ON_THE_WAY) {
-            log.warn("Invalid state transition: orderId={}, currentStatus=ON_THE_WAY, attemptedAction=cancel, attemptedBy={}",
+            log.warn(
+                    "Invalid state transition: orderId={}, currentStatus=ON_THE_WAY, attemptedAction=cancel, attemptedBy={}",
                     orderId, userId);
             throw new InvalidOrderStateException("Cannot cancel an order that is already on the way.");
         }
@@ -513,7 +514,7 @@ public class OrderServiceImpl implements OrderService {
                 .orderId(updatedOrder.getId())
                 .storeId(updatedOrder.getStoreId())
                 .userId(updatedOrder.getUserId())
-                .courierId(updatedOrder.getCourierId())  // nullable
+                .courierId(updatedOrder.getCourierId()) // nullable
                 .oldStatus(oldStatus.name())
                 .items(itemsToRestore)
                 .build();
@@ -523,7 +524,8 @@ public class OrderServiceImpl implements OrderService {
             log.info("'order.cancelled' event sent to RabbitMQ with oldStatus={}: orderId={}",
                     oldStatus.name(), orderId);
         } catch (Exception e) {
-            log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}", orderId, e.getMessage());
+            log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}", orderId,
+                    e.getMessage());
         }
 
         return orderMapper.toOrderResponse(updatedOrder);
@@ -548,23 +550,20 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private List<String> extractClientRoles(Jwt jwt) {
-        try {
-            Map<String, Object> resourceAccess = jwt.getClaim("resource_access");
-            if (resourceAccess == null) {
-                return List.of();
-            }
-
-            Map<String, Object> yadsBackend = (Map<String, Object>) resourceAccess.get("yads-backend");
-            if (yadsBackend == null) {
-                return List.of();
-            }
-
-            List<String> roles = (List<String>) yadsBackend.get("roles");
-            return roles != null ? roles : List.of();
-        } catch (Exception e) {
-            log.error("Error extracting client roles from JWT: {}", e.getMessage());
-            return List.of();
-        }
+        return Optional.ofNullable(jwt.getClaim("resource_access"))
+                .filter(Map.class::isInstance)
+                .map(claim -> (Map<?, ?>) claim)
+                .map(accessMap -> accessMap.get("yads-backend"))
+                .filter(Map.class::isInstance)
+                .map(backend -> (Map<?, ?>) backend)
+                .map(backendMap -> backendMap.get("roles"))
+                .filter(List.class::isInstance)
+                .map(roles -> (List<?>) roles)
+                .map(list -> list.stream()
+                        .filter(String.class::isInstance)
+                        .map(String.class::cast)
+                        .toList())
+                .orElse(List.of());
     }
 
     /**
@@ -591,9 +590,12 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    // REMOVED: verifyStoreOwnershipAndGetStore() - replaced with JWT claim-based authorization
-    // This synchronous HTTP call to store-service was a major coupling point and made
-    // the system fragile. If store-service was down, order operations would fail unnecessarily.
+    // REMOVED: verifyStoreOwnershipAndGetStore() - replaced with JWT claim-based
+    // authorization
+    // This synchronous HTTP call to store-service was a major coupling point and
+    // made
+    // the system fragile. If store-service was down, order operations would fail
+    // unnecessarily.
     //
     // New approach: Store ownership is verified via 'store_id' JWT claim.
     // See extractStoreId() method for implementation.
@@ -618,8 +620,8 @@ public class OrderServiceImpl implements OrderService {
         log.info("Courier assigned successfully: orderId={}, courierId={}", orderId, courierId);
 
         // Publish order.assigned event for notification service
-        com.yads.common.contracts.OrderAssignedContract contract =
-            com.yads.common.contracts.OrderAssignedContract.builder()
+        com.yads.common.contracts.OrderAssignedContract contract = com.yads.common.contracts.OrderAssignedContract
+                .builder()
                 .orderId(updatedOrder.getId())
                 .storeId(updatedOrder.getStoreId())
                 .courierId(courierId)
@@ -632,7 +634,8 @@ public class OrderServiceImpl implements OrderService {
             rabbitTemplate.convertAndSend("order_events_exchange", "order.assigned", contract);
             log.info("'order.assigned' event sent to RabbitMQ. Order ID: {}, Courier ID: {}", orderId, courierId);
         } catch (Exception e) {
-            log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}", orderId, e.getMessage());
+            log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}", orderId,
+                    e.getMessage());
         }
     }
 }

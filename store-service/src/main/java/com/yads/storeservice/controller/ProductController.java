@@ -2,7 +2,6 @@ package com.yads.storeservice.controller;
 
 import com.yads.common.dto.BatchReserveStockRequest;
 import com.yads.common.dto.BatchReserveStockResponse;
-import com.yads.common.dto.ReserveStockRequest;
 import com.yads.storeservice.dto.ProductRequest;
 import com.yads.storeservice.dto.ProductResponse;
 import com.yads.storeservice.services.ProductService;

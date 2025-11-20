@@ -22,6 +22,7 @@ public class ProductRequest {
     @DecimalMin(value = "0.0", inclusive = false, message = "Price must be positive")
     private BigDecimal price;
 
+    @Builder.Default
     @NotNull(message = "Stock cannot be null")
     @PositiveOrZero(message = "Stock must be zero or positive")
     private Integer stock = 0;
