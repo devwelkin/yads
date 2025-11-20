@@ -2,11 +2,17 @@ package com.yads.storeservice.subscriber;
 
 import com.yads.common.contracts.OrderCancelledContract;
 import com.yads.common.dto.BatchReserveStockRequest;
+import com.yads.storeservice.model.IdempotentEvent;
+import com.yads.storeservice.repository.IdempotentEventRepository;
 import com.yads.storeservice.services.ProductService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
 
 /**
  * Listens to 'order.cancelled' events from order-service.
@@ -31,8 +37,10 @@ import org.springframework.stereotype.Component;
  * - RabbitMQ guarantees message delivery (with acknowledgements)
  *
  * Trade-off:
- * - Slight delay between order cancellation and stock restoration (typically milliseconds)
- * - Acceptable trade-off: better to let user cancel immediately, then restore stock async
+ * - Slight delay between order cancellation and stock restoration (typically
+ * milliseconds)
+ * - Acceptable trade-off: better to let user cancel immediately, then restore
+ * stock async
  */
 @Component
 @RequiredArgsConstructor
@@ -40,19 +48,34 @@ import org.springframework.stereotype.Component;
 public class OrderCancelledSubscriber {
 
     private final ProductService productService;
+    private final IdempotentEventRepository idempotentEventRepository;
 
     /**
      * Handles 'order.cancelled' events from order-service.
-     * Restores stock ONLY if the order was already accepted (PREPARING or ON_THE_WAY).
+     * Restores stock ONLY if the order was already accepted (PREPARING or
+     * ON_THE_WAY).
      *
      * CRITICAL: Checks oldStatus to prevent GHOST INVENTORY.
      * If oldStatus=PENDING, stock was never deducted, so we skip restoration.
      */
     @RabbitListener(queues = "order_cancelled_stock_restore_queue")
+    @Transactional
     public void handleOrderCancelled(OrderCancelledContract contract) {
         try {
             log.info("Received 'order.cancelled' event: orderId={}, storeId={}, oldStatus={}",
                     contract.getOrderId(), contract.getStoreId(), contract.getOldStatus());
+
+            // Idempotency Check (First Writer Wins)
+            String eventKey = "RESTORE_STOCK:" + contract.getOrderId();
+            try {
+                idempotentEventRepository.saveAndFlush(IdempotentEvent.builder()
+                        .eventKey(eventKey)
+                        .createdAt(LocalDateTime.now())
+                        .build());
+            } catch (DataIntegrityViolationException e) {
+                log.warn("Event already processed (idempotency check). Skipping. key={}", eventKey);
+                return;
+            }
 
             // GHOST INVENTORY PREVENTION: Only restore stock if it was actually deducted
             if ("PREPARING".equals(contract.getOldStatus()) || "ON_THE_WAY".equals(contract.getOldStatus())) {
@@ -85,4 +108,3 @@ public class OrderCancelledSubscriber {
         }
     }
 }
-

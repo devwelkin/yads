@@ -9,12 +9,26 @@ spring:
     port: 5672
     username: guest
     password: guest
-
+    listener:
+      simple:
+        prefetch: 10
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1000ms
+          multiplier: 2
+          max-interval: 10000ms
 
   datasource:
     url: jdbc:postgresql://localhost:5434/order_service_db
     username: postgres
     password: password
+    hikari:
+      maximum-pool-size: 30
+      minimum-idle: 5
+      idle-timeout: 30000
+      max-lifetime: 1800000
+      connection-timeout: 30000
   jpa:
     hibernate:
       ddl-auto: update

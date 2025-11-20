@@ -5,14 +5,19 @@ import com.yads.common.contracts.CourierAssignmentFailedContract;
 import com.yads.common.contracts.OrderAssignmentContract;
 import com.yads.courierservice.model.Courier;
 import com.yads.courierservice.model.CourierStatus;
+import com.yads.courierservice.model.OutboxEvent;
 import com.yads.courierservice.repository.CourierRepository;
+import com.yads.courierservice.repository.OutboxRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -21,8 +26,13 @@ import java.util.UUID;
 @Slf4j
 public class CourierAssignmentService {
 
-    private final RabbitTemplate rabbitTemplate;
     private final CourierRepository courierRepository;
+    private final OutboxRepository outboxRepository;
+    private final ObjectMapper objectMapper;
+
+    @Autowired
+    @Lazy
+    private CourierAssignmentService self;
 
     /**
      * Assigns a courier to an order using atomic lock-based assignment.
@@ -30,11 +40,11 @@ public class CourierAssignmentService {
      * RACE CONDITION FIX (REAL):
      * 1. Get list of all available couriers sorted by distance
      * 2. For each candidate courier (in order of proximity):
-     *    a. Acquire pessimistic lock (SELECT ... FOR UPDATE)
-     *    b. Check if still AVAILABLE (another thread may have claimed it)
-     *    c. If AVAILABLE, mark as BUSY atomically within transaction
-     *    d. Commit transaction (releases lock)
-     *    e. Notify order-service AFTER successful commit
+     * a. Acquire pessimistic lock (SELECT ... FOR UPDATE)
+     * b. Check if still AVAILABLE (another thread may have claimed it)
+     * c. If AVAILABLE, mark as BUSY atomically within transaction
+     * d. Commit transaction (releases lock)
+     * e. Notify order-service AFTER successful commit
      * 3. If all couriers are claimed during iteration, log failure
      *
      * This ensures ZERO possibility of double-assignment.
@@ -59,7 +69,8 @@ public class CourierAssignmentService {
         for (Courier candidate : candidateCouriers) {
             try {
                 // Atomic assignment: lock, check, update (within transaction)
-                boolean assigned = atomicAssignIfAvailable(candidate.getId());
+                // Use 'self' proxy to ensure @Transactional works
+                boolean assigned = self.atomicAssignIfAvailable(candidate.getId(), contract);
 
                 if (!assigned) {
                     log.debug("Courier {} was claimed by another order, trying next candidate",
@@ -67,33 +78,12 @@ public class CourierAssignmentService {
                     continue; // This courier was claimed, try next one
                 }
 
-                // SUCCESS: Courier is now atomically marked as BUSY in database
+                // SUCCESS: Courier is now atomically marked as BUSY in database AND event is in
+                // Outbox
                 log.info("Successfully assigned courier: courierId={} to orderId={}",
                         candidate.getId(), contract.getOrderId());
 
-                // Publish courier.assigned event for order-service to consume
-                try {
-                    CourierAssignedContract eventContract = CourierAssignedContract.builder()
-                            .orderId(contract.getOrderId())
-                            .courierId(candidate.getId())
-                            .storeId(contract.getStoreId())
-                            .userId(contract.getUserId())
-                            .build();
-
-                    rabbitTemplate.convertAndSend("courier_events_exchange", "courier.assigned", eventContract);
-                    log.info("'courier.assigned' event published: orderId={}, courierId={}",
-                            contract.getOrderId(), candidate.getId());
-                    return; // SUCCESS - we're done!
-
-                } catch (Exception e) {
-                    log.error("CRITICAL: Courier marked BUSY but 'courier.assigned' event publication FAILED. " +
-                            "Courier {} is now BUSY without order-service being notified. " +
-                            "RabbitMQ retry/DLQ should handle this. orderId={}, error={}",
-                            candidate.getId(), contract.getOrderId(), e.getMessage());
-                    // Event publishing failure: RabbitMQ will retry via DLQ
-                    // Or: implement compensating transaction to mark courier AVAILABLE
-                    return; // Don't try other couriers - this one is already marked BUSY
-                }
+                return; // SUCCESS - we're done!
 
             } catch (OptimisticLockingFailureException e) {
                 // Another thread updated the courier simultaneously (version mismatch)
@@ -119,12 +109,14 @@ public class CourierAssignmentService {
      * Atomically assigns a courier if still available.
      * Uses pessimistic locking (SELECT ... FOR UPDATE) to prevent race conditions.
      *
-     * @return true if courier was successfully marked BUSY, false if already claimed
+     * @return true if courier was successfully marked BUSY, false if already
+     *         claimed
      * @throws OptimisticLockingFailureException if version conflict occurs
      */
     @Transactional
-    public boolean atomicAssignIfAvailable(UUID courierId) {
-        // Acquire pessimistic write lock - blocks other transactions from reading this row
+    public boolean atomicAssignIfAvailable(UUID courierId, OrderAssignmentContract contract) {
+        // Acquire pessimistic write lock - blocks other transactions from reading this
+        // row
         Courier courier = courierRepository.findByIdWithLock(courierId)
                 .orElse(null);
 
@@ -133,7 +125,8 @@ public class CourierAssignmentService {
             return false;
         }
 
-        // Check if still available (another thread may have claimed it before we got the lock)
+        // Check if still available (another thread may have claimed it before we got
+        // the lock)
         if (courier.getStatus() != CourierStatus.AVAILABLE) {
             log.debug("Courier {} is no longer AVAILABLE (status: {}), skipping",
                     courierId, courier.getStatus());
@@ -146,6 +139,34 @@ public class CourierAssignmentService {
 
         log.info("Courier atomically marked as BUSY: courierId={}, version={}",
                 courierId, courier.getVersion());
+
+        // Create Outbox Event
+        try {
+            CourierAssignedContract eventContract = CourierAssignedContract.builder()
+                    .orderId(contract.getOrderId())
+                    .courierId(courier.getId())
+                    .storeId(contract.getStoreId())
+                    .userId(contract.getUserId())
+                    .build();
+
+            String payload = objectMapper.writeValueAsString(eventContract);
+
+            OutboxEvent outboxEvent = OutboxEvent.builder()
+                    .aggregateType("COURIER")
+                    .aggregateId(courier.getId().toString())
+                    .type("courier.assigned")
+                    .payload(payload)
+                    .createdAt(LocalDateTime.now())
+                    .processed(false)
+                    .build();
+
+            outboxRepository.save(outboxEvent);
+            log.info("Outbox event saved: courier.assigned for orderId={}", contract.getOrderId());
+
+        } catch (Exception e) {
+            log.error("Failed to create outbox event for courier assignment", e);
+            throw new RuntimeException("Failed to create outbox event", e); // Rollback transaction
+        }
 
         // Transaction commits here, releasing the lock
         return true;
@@ -201,12 +222,10 @@ public class CourierAssignmentService {
         availableCouriers.sort((c1, c2) -> {
             double dist1 = calculateDistance(
                     pickupLat, pickupLon,
-                    c1.getCurrentLatitude(), c1.getCurrentLongitude()
-            );
+                    c1.getCurrentLatitude(), c1.getCurrentLongitude());
             double dist2 = calculateDistance(
                     pickupLat, pickupLon,
-                    c2.getCurrentLatitude(), c2.getCurrentLongitude()
-            );
+                    c2.getCurrentLatitude(), c2.getCurrentLongitude());
             return Double.compare(dist1, dist2);
         });
 
@@ -216,8 +235,7 @@ public class CourierAssignmentService {
                 String.format("%.2f", calculateDistance(
                         pickupLat, pickupLon,
                         availableCouriers.get(0).getCurrentLatitude(),
-                        availableCouriers.get(0).getCurrentLongitude()
-                )));
+                        availableCouriers.get(0).getCurrentLongitude())));
 
         return availableCouriers;
     }
@@ -235,7 +253,7 @@ public class CourierAssignmentService {
 
         double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
                 + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
-                * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+                        * Math.sin(dLon / 2) * Math.sin(dLon / 2);
 
         double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
@@ -244,7 +262,8 @@ public class CourierAssignmentService {
 
     // REMOVED: notifyOrderService() REST call
     // Replaced with async event-driven pattern (courier.assigned event)
-    // This prevents split-brain issues where courier is marked BUSY but order-service
+    // This prevents split-brain issues where courier is marked BUSY but
+    // order-service
     // never receives the assignment due to network failures.
 
     /**
@@ -260,14 +279,25 @@ public class CourierAssignmentService {
                     .reason(reason)
                     .build();
 
-            rabbitTemplate.convertAndSend("courier_events_exchange", "courier.assignment.failed", failureContract);
-            log.info("'courier.assignment.failed' event published: orderId={}, reason={}",
+            String payload = objectMapper.writeValueAsString(failureContract);
+
+            OutboxEvent outboxEvent = OutboxEvent.builder()
+                    .aggregateType("ORDER") // Aggregate is Order here really, but we are in courier service
+                    .aggregateId(contract.getOrderId().toString())
+                    .type("courier.assignment.failed")
+                    .payload(payload)
+                    .createdAt(LocalDateTime.now())
+                    .processed(false)
+                    .build();
+
+            outboxRepository.save(outboxEvent);
+
+            log.info("'courier.assignment.failed' event saved to outbox: orderId={}, reason={}",
                     contract.getOrderId(), reason);
         } catch (Exception e) {
-            log.error("CRITICAL: Failed to publish 'courier.assignment.failed' event. " +
+            log.error("CRITICAL: Failed to save 'courier.assignment.failed' event to outbox. " +
                     "Order {} will remain in PREPARING status indefinitely. Error: {}",
                     contract.getOrderId(), e.getMessage(), e);
         }
     }
 }
-

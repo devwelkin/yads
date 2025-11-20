@@ -3,6 +3,7 @@ package com.yads.courierservice.config;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
@@ -11,6 +12,22 @@ import org.springframework.context.annotation.Configuration;
 
 @Configuration
 public class AmqpConfig {
+
+    // Dead Letter Exchange and Queue Configuration
+    @Bean
+    public TopicExchange deadLetterExchange() {
+        return new TopicExchange("dlx");
+    }
+
+    @Bean
+    public Queue deadLetterQueue() {
+        return new Queue("q.dlq");
+    }
+
+    @Bean
+    public Binding deadLetterBinding() {
+        return BindingBuilder.bind(deadLetterQueue()).to(deadLetterExchange()).with("#");
+    }
 
     // Reference to order-service's exchange
     // Order-service publishes events like "order.preparing" to this exchange
@@ -28,7 +45,10 @@ public class AmqpConfig {
     // Courier-service will listen to this queue for orders that need a courier
     @Bean
     public Queue assignOrderQueue() {
-        return new Queue("q.courier_service.assign_order");
+        return QueueBuilder.durable("q.courier_service.assign_order")
+                .withArgument("x-dead-letter-exchange", "dlx")
+                .withArgument("x-dead-letter-routing-key", "dlq")
+                .build();
     }
 
     // Bind the queue to order_events_exchange
@@ -47,5 +67,3 @@ public class AmqpConfig {
         return new TopicExchange("courier_events_exchange");
     }
 }
-
-

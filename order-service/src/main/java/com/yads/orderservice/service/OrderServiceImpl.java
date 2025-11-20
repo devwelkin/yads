@@ -15,15 +15,18 @@ import com.yads.orderservice.model.Order;
 import com.yads.orderservice.model.OrderItem;
 import com.yads.orderservice.model.OrderStatus;
 import com.yads.orderservice.model.ProductSnapshot;
+import com.yads.orderservice.model.OutboxEvent;
 import com.yads.orderservice.repository.OrderRepository;
 import com.yads.orderservice.repository.ProductSnapshotRepository;
+import com.yads.orderservice.repository.OutboxRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -37,8 +40,9 @@ public class OrderServiceImpl implements OrderService {
 
     private final OrderRepository orderRepository;
     private final OrderMapper orderMapper;
-    private final RabbitTemplate rabbitTemplate;
     private final ProductSnapshotRepository productSnapshotRepository;
+    private final OutboxRepository outboxRepository;
+    private final ObjectMapper objectMapper;
 
     @Override
     @Transactional
@@ -126,11 +130,12 @@ public class OrderServiceImpl implements OrderService {
                     .createdAt(savedOrder.getCreatedAt())
                     .build();
 
-            rabbitTemplate.convertAndSend("order_events_exchange", "order.created", contract);
-            log.info("'order.created' event sent to RabbitMQ. order id: {}", savedOrder.getId());
+            saveOutboxEvent(savedOrder.getId().toString(), "order.created", contract);
+            log.info("'order.created' event saved to Outbox. order id: {}", savedOrder.getId());
         } catch (Exception e) {
-            log.error("ERROR occurred while sending event to RabbitMQ. order id: {}. error: {}", savedOrder.getId(),
+            log.error("ERROR occurred while saving event to Outbox. order id: {}. error: {}", savedOrder.getId(),
                     e.getMessage());
+            throw new RuntimeException("Failed to save outbox event", e);
         }
 
         return orderResponse;
@@ -229,13 +234,11 @@ public class OrderServiceImpl implements OrderService {
                 .build();
 
         try {
-            rabbitTemplate.convertAndSend("order_events_exchange", "order.stock_reservation.requested", contract);
-            log.info("'order.stock_reservation.requested' event sent. orderId={}", orderId);
+            saveOutboxEvent(order.getId().toString(), "order.stock_reservation.requested", contract);
+            log.info("'order.stock_reservation.requested' event saved to Outbox. orderId={}", orderId);
         } catch (Exception e) {
-            log.error("Failed to send stock reservation request event. orderId={}. error: {}", orderId, e.getMessage());
-            // Event publishing failure is logged but not thrown - the order remains in
-            // RESERVING_STOCK state
-            // Consider implementing a compensation mechanism or dead letter queue handling
+            log.error("Failed to save stock reservation request event. orderId={}. error: {}", orderId, e.getMessage());
+            throw new RuntimeException("Failed to save outbox event", e);
         }
 
         return orderMapper.toOrderResponse(updatedOrder);
@@ -307,11 +310,12 @@ public class OrderServiceImpl implements OrderService {
                     .createdAt(updatedOrder.getCreatedAt())
                     .build();
 
-            rabbitTemplate.convertAndSend("order_events_exchange", "order.on_the_way", contract);
-            log.info("'order.on_the_way' event sent to RabbitMQ. Order ID: {}", orderId);
+            saveOutboxEvent(updatedOrder.getId().toString(), "order.on_the_way", contract);
+            log.info("'order.on_the_way' event saved to Outbox. Order ID: {}", orderId);
         } catch (Exception e) {
-            log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}", orderId,
+            log.error("ERROR occurred while saving event to Outbox. Order ID: {}. Error: {}", orderId,
                     e.getMessage());
+            throw new RuntimeException("Failed to save outbox event", e);
         }
 
         return orderResponse;
@@ -378,11 +382,12 @@ public class OrderServiceImpl implements OrderService {
                     .createdAt(updatedOrder.getCreatedAt())
                     .build();
 
-            rabbitTemplate.convertAndSend("order_events_exchange", "order.delivered", contract);
-            log.info("'order.delivered' event sent to RabbitMQ. Order ID: {}", orderId);
+            saveOutboxEvent(updatedOrder.getId().toString(), "order.delivered", contract);
+            log.info("'order.delivered' event saved to Outbox. Order ID: {}", orderId);
         } catch (Exception e) {
-            log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}", orderId,
+            log.error("ERROR occurred while saving event to Outbox. Order ID: {}. Error: {}", orderId,
                     e.getMessage());
+            throw new RuntimeException("Failed to save outbox event", e);
         }
 
         return orderResponse;
@@ -520,12 +525,13 @@ public class OrderServiceImpl implements OrderService {
                 .build();
 
         try {
-            rabbitTemplate.convertAndSend("order_events_exchange", "order.cancelled", contract);
-            log.info("'order.cancelled' event sent to RabbitMQ with oldStatus={}: orderId={}",
+            saveOutboxEvent(updatedOrder.getId().toString(), "order.cancelled", contract);
+            log.info("'order.cancelled' event saved to Outbox with oldStatus={}: orderId={}",
                     oldStatus.name(), orderId);
         } catch (Exception e) {
-            log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}", orderId,
+            log.error("ERROR occurred while saving event to Outbox. Order ID: {}. Error: {}", orderId,
                     e.getMessage());
+            throw new RuntimeException("Failed to save outbox event", e);
         }
 
         return orderMapper.toOrderResponse(updatedOrder);
@@ -631,11 +637,29 @@ public class OrderServiceImpl implements OrderService {
                 .build();
 
         try {
-            rabbitTemplate.convertAndSend("order_events_exchange", "order.assigned", contract);
-            log.info("'order.assigned' event sent to RabbitMQ. Order ID: {}, Courier ID: {}", orderId, courierId);
+            saveOutboxEvent(updatedOrder.getId().toString(), "order.assigned", contract);
+            log.info("'order.assigned' event saved to Outbox. Order ID: {}, Courier ID: {}", orderId, courierId);
         } catch (Exception e) {
-            log.error("ERROR occurred while sending event to RabbitMQ. Order ID: {}. Error: {}", orderId,
+            log.error("ERROR occurred while saving event to Outbox. Order ID: {}. Error: {}", orderId,
                     e.getMessage());
+            throw new RuntimeException("Failed to save outbox event", e);
+        }
+    }
+
+    private void saveOutboxEvent(String aggregateId, String type, Object payloadObj) {
+        try {
+            String payload = objectMapper.writeValueAsString(payloadObj);
+            OutboxEvent event = OutboxEvent.builder()
+                    .aggregateType("ORDER")
+                    .aggregateId(aggregateId)
+                    .type(type)
+                    .payload(payload)
+                    .createdAt(LocalDateTime.now())
+                    .processed(false)
+                    .build();
+            outboxRepository.save(event);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize/save outbox event", e);
         }
     }
 }

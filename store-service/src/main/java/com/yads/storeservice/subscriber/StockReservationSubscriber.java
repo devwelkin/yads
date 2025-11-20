@@ -4,16 +4,27 @@ import com.yads.common.contracts.StockReservationFailedContract;
 import com.yads.common.contracts.StockReservationRequestContract;
 import com.yads.common.contracts.StockReservedContract;
 import com.yads.common.dto.BatchReserveStockRequest;
+import com.yads.storeservice.model.OutboxEvent;
 import com.yads.storeservice.model.Store;
+import com.yads.storeservice.repository.OutboxRepository;
 import com.yads.storeservice.repository.StoreRepository;
 import com.yads.storeservice.services.ProductService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
-import jakarta.transaction.Transactional;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
+
+import com.yads.storeservice.model.IdempotentEvent;
+import com.yads.storeservice.repository.IdempotentEventRepository;
+import org.springframework.dao.DataIntegrityViolationException;
+
+import java.time.LocalDateTime;
 
 /**
  * Subscriber that participates in the stock reservation saga.
@@ -27,7 +38,13 @@ public class StockReservationSubscriber {
 
         private final ProductService productService;
         private final StoreRepository storeRepository;
-        private final RabbitTemplate rabbitTemplate;
+        private final OutboxRepository outboxRepository;
+        private final ObjectMapper objectMapper;
+        private final IdempotentEventRepository idempotentEventRepository;
+
+        @Autowired
+        @Lazy
+        private StockReservationSubscriber self;
 
         /**
          * Handles stock reservation requests from order-service.
@@ -39,6 +56,19 @@ public class StockReservationSubscriber {
         public void handleStockReservationRequest(StockReservationRequestContract contract) {
                 log.info("Received 'order.stock_reservation.requested' event. orderId={}, storeId={}",
                                 contract.getOrderId(), contract.getStoreId());
+
+                // Idempotency Check (First Writer Wins)
+                String eventKey = "RESERVE_STOCK:" + contract.getOrderId();
+                try {
+                        // Try to save immediately. If duplicate, it throws exception.
+                        idempotentEventRepository.saveAndFlush(IdempotentEvent.builder()
+                                        .eventKey(eventKey)
+                                        .createdAt(LocalDateTime.now())
+                                        .build());
+                } catch (DataIntegrityViolationException e) {
+                        log.warn("Event already processed (idempotency check). Skipping. key={}", eventKey);
+                        return;
+                }
 
                 BatchReserveStockRequest reserveRequest = BatchReserveStockRequest.builder()
                                 .storeId(contract.getStoreId())
@@ -65,8 +95,19 @@ public class StockReservationSubscriber {
                                         .shippingAddress(contract.getShippingAddress())
                                         .build();
 
-                        rabbitTemplate.convertAndSend("order_events_exchange", "order.stock_reserved", replyContract);
-                        log.info("Sent 'order.stock_reserved' event. orderId={}", contract.getOrderId());
+                        String payload = objectMapper.writeValueAsString(replyContract);
+
+                        OutboxEvent outboxEvent = OutboxEvent.builder()
+                                        .aggregateType("ORDER")
+                                        .aggregateId(contract.getOrderId().toString())
+                                        .type("order.stock_reserved")
+                                        .payload(payload)
+                                        .createdAt(LocalDateTime.now())
+                                        .processed(false)
+                                        .build();
+
+                        outboxRepository.save(outboxEvent);
+                        log.info("Saved 'order.stock_reserved' event to outbox. orderId={}", contract.getOrderId());
 
                 } catch (Exception e) {
                         // FAILURE: Stock reservation failed, transaction will rollback
@@ -79,10 +120,31 @@ public class StockReservationSubscriber {
                                         .reason(e.getMessage()) // e.g., "Insufficient stock for product 'X'"
                                         .build();
 
-                        rabbitTemplate.convertAndSend("order_events_exchange", "order.stock_reservation_failed",
-                                        replyContract);
-                        log.info("Sent 'order.stock_reservation_failed' event. orderId={}, reason: {}",
-                                        contract.getOrderId(), e.getMessage());
+                        // Use self proxy to save failure event in a NEW transaction
+                        // because the current transaction is marked for rollback
+                        self.saveFailureEvent(replyContract);
+                }
+        }
+
+        @Transactional(propagation = Propagation.REQUIRES_NEW)
+        public void saveFailureEvent(StockReservationFailedContract contract) {
+                try {
+                        String payload = objectMapper.writeValueAsString(contract);
+
+                        OutboxEvent outboxEvent = OutboxEvent.builder()
+                                        .aggregateType("ORDER")
+                                        .aggregateId(contract.getOrderId().toString())
+                                        .type("order.stock_reservation_failed")
+                                        .payload(payload)
+                                        .createdAt(LocalDateTime.now())
+                                        .processed(false)
+                                        .build();
+
+                        outboxRepository.save(outboxEvent);
+                        log.info("Saved 'order.stock_reservation_failed' event to outbox. orderId={}",
+                                        contract.getOrderId());
+                } catch (Exception e) {
+                        log.error("Failed to save failure event to outbox", e);
                 }
         }
 }
