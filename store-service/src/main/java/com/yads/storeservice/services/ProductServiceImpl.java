@@ -16,6 +16,8 @@ import com.yads.storeservice.model.Category;
 import com.yads.storeservice.model.Product;
 import com.yads.storeservice.repository.CategoryRepository;
 import com.yads.storeservice.repository.ProductRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -38,6 +40,9 @@ public class ProductServiceImpl implements ProductService {
     private final ProductMapper productMapper;
     private final ApplicationEventPublisher eventPublisher;
 
+    @PersistenceContext
+    private final EntityManager entityManager;
+
     @Override
     @Transactional
     public ProductResponse createProduct(UUID categoryId, ProductRequest request, UUID ownerId) {
@@ -58,8 +63,6 @@ public class ProductServiceImpl implements ProductService {
 
         // Set availability based on stock (if stock > 0, make it available)
         product.setIsAvailable(request.getStock() != null && request.getStock() > 0);
-
-
 
         // Save and return
         Product savedProduct = productRepository.save(product);
@@ -83,7 +86,8 @@ public class ProductServiceImpl implements ProductService {
         // Check authorization
         if (!product.getCategory().getStore().getOwnerId().equals(ownerId)) {
             log.warn("Access denied: User {} attempted to update product {} in store {} owned by {}",
-                    ownerId, productId, product.getCategory().getStore().getId(), product.getCategory().getStore().getOwnerId());
+                    ownerId, productId, product.getCategory().getStore().getId(),
+                    product.getCategory().getStore().getOwnerId());
             throw new AccessDeniedException("You are not authorized to update this product");
         }
 
@@ -112,7 +116,8 @@ public class ProductServiceImpl implements ProductService {
         // Check authorization
         if (!product.getCategory().getStore().getOwnerId().equals(ownerId)) {
             log.warn("Access denied: User {} attempted to delete product {} from store {} owned by {}",
-                    ownerId, productId, product.getCategory().getStore().getId(), product.getCategory().getStore().getOwnerId());
+                    ownerId, productId, product.getCategory().getStore().getId(),
+                    product.getCategory().getStore().getOwnerId());
             throw new AccessDeniedException("You are not authorized to delete this product");
         }
 
@@ -192,7 +197,8 @@ public class ProductServiceImpl implements ProductService {
         // Check authorization
         if (!product.getCategory().getStore().getOwnerId().equals(ownerId)) {
             log.warn("Access denied: User {} attempted to update stock for product {} in store {} owned by {}",
-                    ownerId, productId, product.getCategory().getStore().getId(), product.getCategory().getStore().getOwnerId());
+                    ownerId, productId, product.getCategory().getStore().getId(),
+                    product.getCategory().getStore().getOwnerId());
             throw new AccessDeniedException("You are not authorized to update stock for this product");
         }
 
@@ -224,7 +230,8 @@ public class ProductServiceImpl implements ProductService {
         // Check authorization
         if (!product.getCategory().getStore().getOwnerId().equals(ownerId)) {
             log.warn("Access denied: User {} attempted to toggle availability for product {} in store {} owned by {}",
-                    ownerId, productId, product.getCategory().getStore().getId(), product.getCategory().getStore().getOwnerId());
+                    ownerId, productId, product.getCategory().getStore().getId(),
+                    product.getCategory().getStore().getOwnerId());
             throw new AccessDeniedException("You are not authorized to change availability for this product");
         }
 
@@ -267,27 +274,30 @@ public class ProductServiceImpl implements ProductService {
             log.info("Insufficient stock for product {}: available={}, requested={}",
                     productId, product.getStock(), request.getQuantity());
             throw new InsufficientStockException(
-                String.format("Not enough stock. Requested: %d", request.getQuantity())
-            );
+                    String.format("Not enough stock. Requested: %d", request.getQuantity()));
         }
 
         int oldStock = product.getStock();
-        int newStock = product.getStock() - request.getQuantity();
-        product.setStock(newStock);
 
-        if (newStock == 0) {
-            product.setIsAvailable(false);
+        int updatedRows = productRepository.decreaseStock(productId, request.getQuantity());
+        if (updatedRows == 0) {
+            log.info("Insufficient stock for product {} during atomic update: requested={}", productId,
+                    request.getQuantity());
+            throw new InsufficientStockException(
+                    String.format("Not enough stock. Requested: %d", request.getQuantity()));
         }
 
-        Product savedProduct = productRepository.save(product);
+        // Refresh entity to get updated stock and availability from DB
+        entityManager.refresh(product);
 
         log.info("Product stock reserved: id={}, name='{}', reserved={}, oldStock={}, newStock={}, storeId={}",
-                productId, product.getName(), request.getQuantity(), oldStock, newStock, request.getStoreId());
+                productId, product.getName(), request.getQuantity(), oldStock, product.getStock(),
+                request.getStoreId());
 
         // Publish product update event (will be sent after transaction commit)
-        eventPublisher.publishEvent(new ProductUpdateEvent(this, savedProduct, "product.stock.reserved"));
+        eventPublisher.publishEvent(new ProductUpdateEvent(this, product, "product.stock.reserved"));
 
-        return productMapper.toProductResponse(savedProduct);
+        return productMapper.toProductResponse(product);
     }
 
     @Override
@@ -330,13 +340,15 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional
     public List<BatchReserveStockResponse> batchReserveStock(BatchReserveStockRequest request) {
-        log.info("Batch stock reservation started: storeId={}, itemCount={}", request.getStoreId(), request.getItems().size());
+        log.info("Batch stock reservation started: storeId={}, itemCount={}", request.getStoreId(),
+                request.getItems().size());
 
         List<BatchReserveStockResponse> responses = new ArrayList<>();
 
         // CRITICAL: All operations happen in a single transaction
         // If ANY item fails, the ENTIRE transaction rolls back
-        // Events are published AFTER all operations succeed (via @TransactionalEventListener AFTER_COMMIT)
+        // Events are published AFTER all operations succeed (via
+        // @TransactionalEventListener AFTER_COMMIT)
         for (BatchReserveItem item : request.getItems()) {
             try {
                 Product product = productRepository.findById(item.getProductId())
@@ -345,8 +357,7 @@ public class ProductServiceImpl implements ProductService {
                 // Store validation
                 if (!product.getCategory().getStore().getId().equals(request.getStoreId())) {
                     throw new IllegalArgumentException(
-                        "Product " + item.getProductId() + " does not belong to store " + request.getStoreId()
-                    );
+                            "Product " + item.getProductId() + " does not belong to store " + request.getStoreId());
                 }
 
                 // Availability check
@@ -357,36 +368,36 @@ public class ProductServiceImpl implements ProductService {
                 // Stock check
                 if (product.getStock() < item.getQuantity()) {
                     throw new InsufficientStockException(
-                        String.format("Insufficient stock for product '%s'. Available: %d, Requested: %d",
-                                product.getName(), product.getStock(), item.getQuantity())
-                    );
+                            String.format("Insufficient stock for product '%s'. Available: %d, Requested: %d",
+                                    product.getName(), product.getStock(), item.getQuantity()));
                 }
 
-                // Reserve stock
                 int oldStock = product.getStock();
-                int newStock = oldStock - item.getQuantity();
-                product.setStock(newStock);
 
-                // Update availability if needed
-                if (newStock == 0) {
-                    product.setIsAvailable(false);
+                // Atomic update
+                int updatedRows = productRepository.decreaseStock(item.getProductId(), item.getQuantity());
+                if (updatedRows == 0) {
+                    throw new InsufficientStockException(
+                            String.format("Insufficient stock for product '%s' during atomic update. Requested: %d",
+                                    product.getName(), item.getQuantity()));
                 }
 
-                Product savedProduct = productRepository.save(product);
+                // Refresh entity
+                entityManager.refresh(product);
 
                 log.info("Stock reserved in batch: productId={}, name='{}', quantity={}, oldStock={}, newStock={}",
-                        item.getProductId(), product.getName(), item.getQuantity(), oldStock, newStock);
+                        item.getProductId(), product.getName(), item.getQuantity(), oldStock, product.getStock());
 
                 // Schedule event to be published after transaction commit
                 // If transaction rolls back, this event will NOT be sent
-                eventPublisher.publishEvent(new ProductUpdateEvent(this, savedProduct, "product.stock.reserved"));
+                eventPublisher.publishEvent(new ProductUpdateEvent(this, product, "product.stock.reserved"));
 
                 // Add success response
                 responses.add(BatchReserveStockResponse.builder()
                         .productId(product.getId())
                         .productName(product.getName())
                         .reservedQuantity(item.getQuantity())
-                        .remainingStock(newStock)
+                        .remainingStock(product.getStock())
                         .success(true)
                         .build());
 
@@ -406,11 +417,13 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional
     public void batchRestoreStock(BatchReserveStockRequest request) {
-        log.info("Batch stock restoration started: storeId={}, itemCount={}", request.getStoreId(), request.getItems().size());
+        log.info("Batch stock restoration started: storeId={}, itemCount={}", request.getStoreId(),
+                request.getItems().size());
 
         // CRITICAL: All operations happen in a single transaction
         // If ANY item fails, the ENTIRE transaction rolls back
-        // Events are published AFTER all operations succeed (via @TransactionalEventListener AFTER_COMMIT)
+        // Events are published AFTER all operations succeed (via
+        // @TransactionalEventListener AFTER_COMMIT)
         for (BatchReserveItem item : request.getItems()) {
             try {
                 Product product = productRepository.findById(item.getProductId())
@@ -419,8 +432,7 @@ public class ProductServiceImpl implements ProductService {
                 // Store validation
                 if (!product.getCategory().getStore().getId().equals(request.getStoreId())) {
                     throw new IllegalArgumentException(
-                        "Product " + item.getProductId() + " does not belong to store " + request.getStoreId()
-                    );
+                            "Product " + item.getProductId() + " does not belong to store " + request.getStoreId());
                 }
 
                 int oldStock = product.getStock();

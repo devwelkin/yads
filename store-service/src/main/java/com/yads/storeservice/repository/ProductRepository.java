@@ -2,7 +2,11 @@ package com.yads.storeservice.repository;
 
 import com.yads.storeservice.model.Product;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+
 import java.util.List;
 import java.util.UUID;
 
@@ -20,4 +24,8 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
 
     // for a simple search feature
     List<Product> findByNameContainingIgnoreCase(String name);
+
+    @Modifying
+    @Query("UPDATE Product p SET p.stock = p.stock - :quantity, p.isAvailable = (CASE WHEN (p.stock - :quantity) > 0 THEN true ELSE false END) WHERE p.id = :id AND p.stock >= :quantity")
+    int decreaseStock(@Param("id") UUID id, @Param("quantity") int quantity);
 }
