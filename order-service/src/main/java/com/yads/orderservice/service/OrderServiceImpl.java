@@ -598,19 +598,6 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    // REMOVED: verifyStoreOwnershipAndGetStore() - replaced with JWT claim-based
-    // authorization
-    // This synchronous HTTP call to store-service was a major coupling point and
-    // made
-    // the system fragile. If store-service was down, order operations would fail
-    // unnecessarily.
-    //
-    // New approach: Store ownership is verified via 'store_id' JWT claim.
-    // See extractStoreId() method for implementation.
-
-    // REMOVED: isStoreOwnerOfOrder() - replaced with JWT claim-based authorization
-    // See extractStoreId() method for JWT-based store ownership verification
-
     @Override
     @Transactional
     public void assignCourierToOrder(UUID orderId, UUID courierId) {
