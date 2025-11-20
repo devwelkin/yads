@@ -1,6 +1,7 @@
 package com.yads.orderservice.subscriber;
 
 import com.yads.common.contracts.CourierAssignedContract;
+import com.yads.common.contracts.OrderAssignedContract;
 import com.yads.orderservice.model.Order;
 import com.yads.orderservice.model.OrderStatus;
 import com.yads.orderservice.repository.OrderRepository;
@@ -77,7 +78,7 @@ public class CourierAssignedSubscriber {
 
         // Publish order.assigned event for notification-service
         try {
-            com.yads.common.contracts.OrderAssignedContract notificationContract = com.yads.common.contracts.OrderAssignedContract
+            OrderAssignedContract notificationContract = OrderAssignedContract
                     .builder()
                     .orderId(order.getId())
                     .storeId(order.getStoreId())

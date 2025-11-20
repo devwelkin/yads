@@ -3,6 +3,8 @@ package com.yads.orderservice.service;
 
 import com.yads.common.contracts.OrderStatusChangeContract;
 import com.yads.common.contracts.OrderCancelledContract;
+import com.yads.common.contracts.OrderAssignedContract;
+import com.yads.common.contracts.StockReservationRequestContract;
 import com.yads.common.dto.BatchReserveItem;
 import com.yads.common.exception.AccessDeniedException;
 import com.yads.common.exception.ResourceNotFoundException;
@@ -117,7 +119,7 @@ public class OrderServiceImpl implements OrderService {
 
         // Publish order.created event as contract for notification service
         try {
-            com.yads.common.contracts.OrderStatusChangeContract contract = com.yads.common.contracts.OrderStatusChangeContract
+            OrderStatusChangeContract contract = OrderStatusChangeContract
                     .builder()
                     .orderId(savedOrder.getId())
                     .userId(savedOrder.getUserId())
@@ -223,7 +225,7 @@ public class OrderServiceImpl implements OrderService {
                         .build())
                 .collect(Collectors.toList());
 
-        com.yads.common.contracts.StockReservationRequestContract contract = com.yads.common.contracts.StockReservationRequestContract
+        StockReservationRequestContract contract = StockReservationRequestContract
                 .builder()
                 .orderId(order.getId())
                 .storeId(order.getStoreId())
@@ -297,7 +299,7 @@ public class OrderServiceImpl implements OrderService {
 
         // Publish order.on_the_way event as contract for notification service
         try {
-            com.yads.common.contracts.OrderStatusChangeContract contract = com.yads.common.contracts.OrderStatusChangeContract
+            OrderStatusChangeContract contract = OrderStatusChangeContract
                     .builder()
                     .orderId(updatedOrder.getId())
                     .userId(updatedOrder.getUserId())
@@ -626,7 +628,7 @@ public class OrderServiceImpl implements OrderService {
         log.info("Courier assigned successfully: orderId={}, courierId={}", orderId, courierId);
 
         // Publish order.assigned event for notification service
-        com.yads.common.contracts.OrderAssignedContract contract = com.yads.common.contracts.OrderAssignedContract
+        OrderAssignedContract contract = OrderAssignedContract
                 .builder()
                 .orderId(updatedOrder.getId())
                 .storeId(updatedOrder.getStoreId())

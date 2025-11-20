@@ -2,6 +2,8 @@ package com.yads.orderservice.subscriber;
 
 import com.yads.common.contracts.CourierAssignmentFailedContract;
 import com.yads.common.contracts.OrderCancelledContract;
+import com.yads.common.dto.BatchReserveItem;
+import java.util.stream.Collectors;
 import com.yads.orderservice.model.Order;
 import com.yads.orderservice.model.OrderStatus;
 import com.yads.orderservice.repository.OrderRepository;
@@ -63,11 +65,11 @@ public class CourierAssignmentFailedSubscriber {
                                         .storeId(order.getStoreId())
                                         .oldStatus("PREPARING") // CRITICAL: Stock was reserved, must be restored
                                         .items(order.getItems().stream()
-                                                        .map(item -> com.yads.common.dto.BatchReserveItem.builder()
+                                                        .map(item -> BatchReserveItem.builder()
                                                                         .productId(item.getProductId())
                                                                         .quantity(item.getQuantity())
                                                                         .build())
-                                                        .collect(java.util.stream.Collectors.toList()))
+                                                        .collect(Collectors.toList()))
                                         .build();
 
                         rabbitTemplate.convertAndSend("order_events_exchange", "order.cancelled", cancellationContract);
