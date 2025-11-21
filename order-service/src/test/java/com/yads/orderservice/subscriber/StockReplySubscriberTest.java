@@ -95,8 +95,7 @@ class StockReplySubscriberTest {
         verify(rabbitTemplate).convertAndSend(
                 eq("order_events_exchange"),
                 eq("order.preparing"),
-                captor.capture()
-        );
+                captor.capture());
 
         assertThat(captor.getValue().getOrderId()).isEqualTo(orderId);
         assertThat(captor.getValue().getPickupAddress()).isEqualTo(pickupAddress);
@@ -145,11 +144,11 @@ class StockReplySubscriberTest {
         verify(rabbitTemplate).convertAndSend(
                 eq("order_events_exchange"),
                 eq("order.cancelled"),
-                captor.capture()
-        );
+                captor.capture());
 
         assertThat(captor.getValue().getOrderId()).isEqualTo(orderId);
-        // Stok hiç ayrılmadığı için "oldStatus" RESERVING_STOCK olmalı (hayalet stok oluşmaması için)
+        // Stok hiç ayrılmadığı için "oldStatus" RESERVING_STOCK olmalı (hayalet stok
+        // oluşmaması için)
         assertThat(captor.getValue().getOldStatus()).isEqualTo("RESERVING_STOCK");
     }
 
@@ -180,5 +179,198 @@ class StockReplySubscriberTest {
         // Act & Assert
         assertThatThrownBy(() -> subscriber.handleStockReserved(contract))
                 .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    void handleStockReservationFailed_OrderNotFound_ThrowsException() {
+        // Arrange
+        StockReservationFailedContract contract = StockReservationFailedContract.builder().orderId(orderId).build();
+        when(orderRepository.findById(orderId)).thenReturn(Optional.empty());
+
+        // Act & Assert
+        assertThatThrownBy(() -> subscriber.handleStockReservationFailed(contract))
+                .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    // --- EDGE CASE: RabbitMQ Failure ---
+
+    @Test
+    void handleStockReserved_RabbitMQFailure_StillUpdatesOrder() {
+        // Arrange
+        Address pickupAddress = new Address();
+        pickupAddress.setCity("Istanbul");
+
+        StockReservedContract contract = StockReservedContract.builder()
+                .orderId(orderId)
+                .storeId(storeId)
+                .userId(userId)
+                .pickupAddress(pickupAddress)
+                .shippingAddress(address)
+                .build();
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        // RabbitMQ fails but order should still be saved
+        doThrow(new RuntimeException("RabbitMQ connection lost"))
+                .when(rabbitTemplate).convertAndSend(anyString(), anyString(), any(Object.class));
+
+        // Act - should not throw
+        subscriber.handleStockReserved(contract);
+
+        // Assert: Order should still be updated
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PREPARING);
+        assertThat(order.getPickupAddress()).isEqualTo(pickupAddress);
+        verify(orderRepository).save(order);
+    }
+
+    @Test
+    void handleStockReservationFailed_RabbitMQFailure_StillCancelsOrder() {
+        // Arrange
+        StockReservationFailedContract contract = StockReservationFailedContract.builder()
+                .orderId(orderId)
+                .userId(userId)
+                .reason("Insufficient Stock")
+                .build();
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        // RabbitMQ fails but order should still be cancelled
+        doThrow(new RuntimeException("RabbitMQ connection lost"))
+                .when(rabbitTemplate).convertAndSend(anyString(), anyString(), any(Object.class));
+
+        // Act - should not throw
+        subscriber.handleStockReservationFailed(contract);
+
+        // Assert: Order should still be cancelled
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        verify(orderRepository).save(order);
+    }
+
+    // --- CRITICAL: Idempotency - Already PREPARING ---
+
+    @Test
+    void handleStockReserved_AlreadyPreparing_ShouldIgnore() {
+        // Arrange: Order already in PREPARING state (duplicate event)
+        order.setStatus(OrderStatus.PREPARING);
+        order.setPickupAddress(address); // Already set
+
+        StockReservedContract contract = StockReservedContract.builder()
+                .orderId(orderId)
+                .storeId(storeId)
+                .userId(userId)
+                .pickupAddress(address)
+                .shippingAddress(address)
+                .build();
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        // Act
+        subscriber.handleStockReserved(contract);
+
+        // Assert: Should be ignored (idempotency)
+        verify(orderRepository, never()).save(any());
+        verify(rabbitTemplate, never()).convertAndSend(anyString(), anyString(), any(Object.class));
+    }
+
+    // --- CRITICAL: Validate Pickup Address is Set ---
+
+    @Test
+    void handleStockReserved_ShouldSetPickupAddressFromContract() {
+        // Arrange
+        Address storePickupAddress = new Address();
+        storePickupAddress.setCity("Ankara");
+        storePickupAddress.setStreet("Kizilay");
+        storePickupAddress.setPostalCode("06420");
+        storePickupAddress.setLatitude(39.9208);
+        storePickupAddress.setLongitude(32.8541);
+
+        StockReservedContract contract = StockReservedContract.builder()
+                .orderId(orderId)
+                .storeId(storeId)
+                .userId(userId)
+                .pickupAddress(storePickupAddress)
+                .shippingAddress(address)
+                .build();
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        // Act
+        subscriber.handleStockReserved(contract);
+
+        // Assert: Pickup address should be exactly from contract
+        assertThat(order.getPickupAddress()).isNotNull();
+        assertThat(order.getPickupAddress().getCity()).isEqualTo("Ankara");
+        assertThat(order.getPickupAddress().getStreet()).isEqualTo("Kizilay");
+        assertThat(order.getPickupAddress().getPostalCode()).isEqualTo("06420");
+        assertThat(order.getPickupAddress().getLatitude()).isEqualTo(39.9208);
+        assertThat(order.getPickupAddress().getLongitude()).isEqualTo(32.8541);
+    }
+
+    // --- CRITICAL: Empty Items List in Cancellation ---
+
+    @Test
+    void handleStockReservationFailed_ShouldPublishEmptyItemsList() {
+        // Arrange: Stock was never reserved, so no items to restore
+        StockReservationFailedContract contract = StockReservationFailedContract.builder()
+                .orderId(orderId)
+                .userId(userId)
+                .reason("Product discontinued")
+                .build();
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        // Act
+        subscriber.handleStockReservationFailed(contract);
+
+        // Assert: Items list should be empty (no stock restoration needed)
+        ArgumentCaptor<OrderCancelledContract> captor = ArgumentCaptor.forClass(OrderCancelledContract.class);
+        verify(rabbitTemplate).convertAndSend(
+                eq("order_events_exchange"),
+                eq("order.cancelled"),
+                captor.capture());
+
+        OrderCancelledContract cancelContract = captor.getValue();
+        assertThat(cancelContract.getItems()).isEmpty();
+        assertThat(cancelContract.getOldStatus()).isEqualTo("RESERVING_STOCK");
+    }
+
+    // --- CRITICAL: Shipping Address Passed to Courier Assignment ---
+
+    @Test
+    void handleStockReserved_ShouldIncludeShippingAddressInCourierAssignment() {
+        // Arrange
+        Address pickupAddress = new Address();
+        pickupAddress.setCity("Istanbul");
+
+        Address shippingAddress = new Address();
+        shippingAddress.setCity("Izmir");
+        shippingAddress.setStreet("Alsancak");
+
+        StockReservedContract contract = StockReservedContract.builder()
+                .orderId(orderId)
+                .storeId(storeId)
+                .userId(userId)
+                .pickupAddress(pickupAddress)
+                .shippingAddress(shippingAddress)
+                .build();
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        // Act
+        subscriber.handleStockReserved(contract);
+
+        // Assert: Courier assignment contract should have both addresses
+        ArgumentCaptor<OrderAssignmentContract> captor = ArgumentCaptor.forClass(OrderAssignmentContract.class);
+        verify(rabbitTemplate).convertAndSend(
+                eq("order_events_exchange"),
+                eq("order.preparing"),
+                captor.capture());
+
+        OrderAssignmentContract assignmentContract = captor.getValue();
+        assertThat(assignmentContract.getPickupAddress()).isEqualTo(pickupAddress);
+        assertThat(assignmentContract.getShippingAddress()).isEqualTo(shippingAddress);
+        assertThat(assignmentContract.getOrderId()).isEqualTo(orderId);
+        assertThat(assignmentContract.getStoreId()).isEqualTo(storeId);
+        assertThat(assignmentContract.getUserId()).isEqualTo(userId);
     }
 }

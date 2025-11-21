@@ -1,8 +1,10 @@
 package com.yads.common.contracts;
 
 import com.yads.common.model.Address;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.util.UUID;
 
@@ -12,6 +14,8 @@ import java.util.UUID;
  */
 @Data
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class StockReservedContract {
     // Carries the same data as OrderAssignmentContract for courier assignment
     private UUID orderId;
@@ -20,4 +24,3 @@ public class StockReservedContract {
     private Address pickupAddress;
     private Address shippingAddress;
 }
-
