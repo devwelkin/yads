@@ -8,8 +8,11 @@ import com.yads.storeservice.services.ProductService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -50,6 +53,10 @@ public class OrderCancelledSubscriber {
     private final ProductService productService;
     private final IdempotentEventRepository idempotentEventRepository;
 
+    @Autowired
+    @Lazy
+    private OrderCancelledSubscriber self;
+
     /**
      * Handles 'order.cancelled' events from order-service.
      * Restores stock ONLY if the order was already accepted (PREPARING or
@@ -65,14 +72,9 @@ public class OrderCancelledSubscriber {
             log.info("Received 'order.cancelled' event: orderId={}, storeId={}, oldStatus={}",
                     contract.getOrderId(), contract.getStoreId(), contract.getOldStatus());
 
-            // Idempotency Check (First Writer Wins)
-            String eventKey = "RESTORE_STOCK:" + contract.getOrderId();
-            try {
-                idempotentEventRepository.saveAndFlush(IdempotentEvent.builder()
-                        .eventKey(eventKey)
-                        .createdAt(LocalDateTime.now())
-                        .build());
-            } catch (DataIntegrityViolationException e) {
+            // Idempotency Check (First Writer Wins) - MUST be in separate transaction
+            String eventKey = "CANCEL_ORDER:" + contract.getOrderId();
+            if (!self.tryCreateIdempotencyKey(eventKey)) {
                 log.warn("Event already processed (idempotency check). Skipping. key={}", eventKey);
                 return;
             }
@@ -105,6 +107,33 @@ public class OrderCancelledSubscriber {
             // Exception will cause message to be requeued (with RabbitMQ acknowledgement)
             // This ensures eventual consistency - the message will be retried
             throw e;
+        }
+    }
+
+    /**
+     * Tries to create an idempotency key in a SEPARATE transaction.
+     * Returns true if created successfully, false if already exists.
+     * Uses REQUIRES_NEW so the key persists even if parent transaction rolls back.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public boolean tryCreateIdempotencyKey(String eventKey) {
+        // Double-check pattern: first check if exists (fast path)
+        if (idempotentEventRepository.existsById(eventKey)) {
+            log.info("Idempotency key already exists (duplicate detected): {}", eventKey);
+            return false;
+        }
+
+        // Then try to create (handles race condition with unique constraint)
+        try {
+            idempotentEventRepository.saveAndFlush(IdempotentEvent.builder()
+                    .eventKey(eventKey)
+                    .createdAt(LocalDateTime.now())
+                    .build());
+            log.info("Created idempotency key: {}", eventKey);
+            return true;
+        } catch (DataIntegrityViolationException e) {
+            log.info("Idempotency key already exists (duplicate caught by constraint): {}", eventKey);
+            return false;
         }
     }
 }

@@ -4,13 +4,17 @@ import com.yads.common.contracts.StockReservationFailedContract;
 import com.yads.common.contracts.StockReservationRequestContract;
 import com.yads.common.contracts.StockReservedContract;
 import com.yads.common.dto.BatchReserveStockRequest;
+import com.yads.storeservice.model.IdempotentEvent;
 import com.yads.storeservice.model.OutboxEvent;
 import com.yads.storeservice.model.Store;
+import com.yads.storeservice.repository.IdempotentEventRepository;
 import com.yads.storeservice.repository.OutboxRepository;
 import com.yads.storeservice.repository.StoreRepository;
 import com.yads.storeservice.services.ProductService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,11 +22,6 @@ import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Propagation;
-
-import com.yads.storeservice.model.IdempotentEvent;
-import com.yads.storeservice.repository.IdempotentEventRepository;
-import org.springframework.dao.DataIntegrityViolationException;
 
 import java.time.LocalDateTime;
 
@@ -57,15 +56,11 @@ public class StockReservationSubscriber {
                 log.info("Received 'order.stock_reservation.requested' event. orderId={}, storeId={}",
                                 contract.getOrderId(), contract.getStoreId());
 
-                // Idempotency Check (First Writer Wins)
+                // Idempotency Check (First Writer Wins) - MUST be in separate transaction
+                // so it persists even if stock reservation fails and main transaction rolls
+                // back
                 String eventKey = "RESERVE_STOCK:" + contract.getOrderId();
-                try {
-                        // Try to save immediately. If duplicate, it throws exception.
-                        idempotentEventRepository.saveAndFlush(IdempotentEvent.builder()
-                                        .eventKey(eventKey)
-                                        .createdAt(LocalDateTime.now())
-                                        .build());
-                } catch (DataIntegrityViolationException e) {
+                if (!self.tryCreateIdempotencyKey(eventKey)) {
                         log.warn("Event already processed (idempotency check). Skipping. key={}", eventKey);
                         return;
                 }
@@ -126,6 +121,11 @@ public class StockReservationSubscriber {
                 }
         }
 
+        /**
+         * Saves stock reservation failure event to outbox.
+         * Uses REQUIRES_NEW transaction so it persists even when parent transaction
+         * rolls back.
+         */
         @Transactional(propagation = Propagation.REQUIRES_NEW)
         public void saveFailureEvent(StockReservationFailedContract contract) {
                 try {
@@ -145,6 +145,33 @@ public class StockReservationSubscriber {
                                         contract.getOrderId());
                 } catch (Exception e) {
                         log.error("Failed to save failure event to outbox", e);
+                }
+        }
+
+        /**
+         * Tries to create an idempotency key in a SEPARATE transaction.
+         * Returns true if created successfully, false if already exists.
+         * Uses REQUIRES_NEW so the key persists even if parent transaction rolls back.
+         */
+        @Transactional(propagation = Propagation.REQUIRES_NEW)
+        public boolean tryCreateIdempotencyKey(String eventKey) {
+                // Double-check pattern: first check if exists (fast path)
+                if (idempotentEventRepository.existsById(eventKey)) {
+                        log.info("Idempotency key already exists (duplicate detected): {}", eventKey);
+                        return false;
+                }
+
+                // Then try to create (handles race condition with unique constraint)
+                try {
+                        idempotentEventRepository.saveAndFlush(IdempotentEvent.builder()
+                                        .eventKey(eventKey)
+                                        .createdAt(LocalDateTime.now())
+                                        .build());
+                        log.info("Created idempotency key: {}", eventKey);
+                        return true;
+                } catch (DataIntegrityViolationException e) {
+                        log.info("Idempotency key already exists (duplicate caught by constraint): {}", eventKey);
+                        return false;
                 }
         }
 }
