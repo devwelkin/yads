@@ -6,6 +6,7 @@ import com.yads.common.exception.AccessDeniedException;
 import com.yads.common.exception.DuplicateResourceException;
 import com.yads.common.exception.InsufficientStockException;
 import com.yads.common.exception.ResourceNotFoundException;
+import io.micrometer.tracing.Tracer;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,18 +20,22 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.UUID;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
         private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        private final Tracer tracer;
+
+        public GlobalExceptionHandler(Tracer tracer) {
+                this.tracer = tracer;
+        }
 
         /**
-         * Generate a unique correlation ID for tracking requests
+         * Get trace ID from Micrometer Tracer
          */
-        private String generateCorrelationId() {
-                return UUID.randomUUID().toString();
+        private String getTraceId() {
+                return tracer.currentSpan() != null ? tracer.currentSpan().context().traceId() : "no-trace-id";
         }
 
         /**
@@ -43,7 +48,7 @@ public class GlobalExceptionHandler {
                         ResourceNotFoundException ex,
                         HttpServletRequest request) {
 
-                String correlationId = generateCorrelationId();
+                String correlationId = getTraceId();
 
                 ErrorResponse errorResponse = ErrorResponse.builder()
                                 .status(HttpStatus.NOT_FOUND.value())
@@ -69,7 +74,7 @@ public class GlobalExceptionHandler {
                         AccessDeniedException ex,
                         HttpServletRequest request) {
 
-                String correlationId = generateCorrelationId();
+                String correlationId = getTraceId();
                 // No logging here - service layer has better context with IDs
 
                 ErrorResponse errorResponse = ErrorResponse.builder()
@@ -95,7 +100,7 @@ public class GlobalExceptionHandler {
                         DuplicateResourceException ex,
                         HttpServletRequest request) {
 
-                String correlationId = generateCorrelationId();
+                String correlationId = getTraceId();
                 // No logging here - service layer has better context
 
                 ErrorResponse errorResponse = ErrorResponse.builder()
@@ -129,7 +134,7 @@ public class GlobalExceptionHandler {
                         }
                 });
 
-                String correlationId = generateCorrelationId();
+                String correlationId = getTraceId();
                 log.debug("[{}] Validation failed - Path: {} - Errors: {}", correlationId, request.getRequestURI(),
                                 validationErrors);
 
@@ -157,7 +162,7 @@ public class GlobalExceptionHandler {
                         InsufficientStockException ex,
                         HttpServletRequest request) {
 
-                String correlationId = generateCorrelationId();
+                String correlationId = getTraceId();
                 // No logging here - service layer has better context with stock details
 
                 ErrorResponse errorResponse = ErrorResponse.builder()
@@ -183,7 +188,7 @@ public class GlobalExceptionHandler {
                         IllegalArgumentException ex,
                         HttpServletRequest request) {
 
-                String correlationId = generateCorrelationId();
+                String correlationId = getTraceId();
 
                 ErrorResponse errorResponse = ErrorResponse.builder()
                                 .status(HttpStatus.BAD_REQUEST.value())
@@ -207,7 +212,7 @@ public class GlobalExceptionHandler {
                         Exception ex,
                         HttpServletRequest request) {
 
-                String correlationId = generateCorrelationId();
+                String correlationId = getTraceId();
                 // Log the full exception with stack trace for debugging
                 log.error("[{}] Unexpected error occurred - Path: {} - Exception: {}",
                                 correlationId,
