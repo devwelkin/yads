@@ -5,10 +5,6 @@ spring:
   cloud:
     discovery:
       enabled: false
-  jpa:
-    hibernate:
-      ddl-auto: create-drop
-    show-sql: false
   security:
     oauth2:
       resourceserver:

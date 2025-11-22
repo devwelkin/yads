@@ -80,7 +80,7 @@ class NotificationControllerEdgeCaseTest extends AbstractIntegrationTest {
         .param("page", "-1")
         .param("size", "10")
         .with(jwt().jwt(builder -> builder.subject(userId.toString()))))
-        .andExpect(status().is5xxServerError()); // Spring throws exception for negative page
+        .andExpect(status().isBadRequest()); // Now returns 400 with validation
   }
 
   @Test
@@ -90,7 +90,7 @@ class NotificationControllerEdgeCaseTest extends AbstractIntegrationTest {
         .param("page", "0")
         .param("size", "0")
         .with(jwt().jwt(builder -> builder.subject(userId.toString()))))
-        .andExpect(status().is5xxServerError()); // Invalid page size
+        .andExpect(status().isBadRequest()); // Now returns 400 with validation
   }
 
   @Test
@@ -100,7 +100,7 @@ class NotificationControllerEdgeCaseTest extends AbstractIntegrationTest {
         .param("page", "0")
         .param("size", "-5")
         .with(jwt().jwt(builder -> builder.subject(userId.toString()))))
-        .andExpect(status().is5xxServerError());
+        .andExpect(status().isBadRequest()); // Now returns 400 with validation
   }
 
   @Test

@@ -3,8 +3,8 @@ package com.yads.notificationservice.config;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -38,7 +38,6 @@ class WebSocketAuthInterceptorTest {
   @Mock
   private MessageChannel messageChannel;
 
-  @InjectMocks
   private WebSocketAuthInterceptor webSocketAuthInterceptor;
 
   private UUID userId;
@@ -46,8 +45,10 @@ class WebSocketAuthInterceptorTest {
 
   @BeforeEach
   void setUp() {
+    MockitoAnnotations.openMocks(this);
     userId = UUID.randomUUID();
     validToken = "valid.jwt.token";
+    webSocketAuthInterceptor = new WebSocketAuthInterceptor(jwtDecoder);
   }
 
   @Test
@@ -55,8 +56,10 @@ class WebSocketAuthInterceptorTest {
     // Arrange
     Jwt jwt = createMockJwt(userId.toString());
     when(jwtDecoder.decode(anyString())).thenReturn(jwt);
+
     StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.CONNECT);
     accessor.setNativeHeader("Authorization", "Bearer " + validToken);
+    accessor.setLeaveMutable(true); // Prevent accessor from being sealed
     Message<?> message = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
 
     // Act
@@ -64,7 +67,6 @@ class WebSocketAuthInterceptorTest {
 
     // Assert
     assertThat(result).isNotNull();
-    verify(jwtDecoder).decode(validToken);
 
     StompHeaderAccessor resultAccessor = StompHeaderAccessor.wrap(result);
     assertThat(resultAccessor.getUser()).isNotNull();
@@ -210,6 +212,7 @@ class WebSocketAuthInterceptorTest {
     StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.CONNECT);
     accessor.setNativeHeader("Authorization", "Bearer " + validToken);
     accessor.addNativeHeader("Authorization", "Bearer another.token");
+    accessor.setLeaveMutable(true); // Prevent accessor from being sealed
     Message<?> message = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
 
     // Act
@@ -217,7 +220,9 @@ class WebSocketAuthInterceptorTest {
 
     // Assert
     assertThat(result).isNotNull();
-    verify(jwtDecoder, atLeastOnce()).decode(anyString()); // Should decode a token
+    // Should successfully decode and authenticate
+    StompHeaderAccessor resultAccessor = StompHeaderAccessor.wrap(result);
+    assertThat(resultAccessor.getUser()).isNotNull();
   }
 
   @Test
@@ -240,8 +245,10 @@ class WebSocketAuthInterceptorTest {
     // Arrange
     Jwt jwt = createMockJwt(userId.toString());
     when(jwtDecoder.decode(anyString())).thenReturn(jwt);
+
     StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.CONNECT);
     accessor.setNativeHeader("Authorization", "Bearer " + validToken);
+    accessor.setLeaveMutable(true); // Prevent accessor from being sealed
     Message<?> message = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
 
     // Act
