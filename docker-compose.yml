@@ -1,4 +1,161 @@
 services:
+  # --- INFRASTRUCTURE ---
+
+  eureka:
+    build:
+      context: ./eureka
+      dockerfile: ../Dockerfile
+      args:
+        JAR_FILE: target/*.jar
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8761/actuator/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "8761:8761"
+    networks:
+      - yads-network
+
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: ../Dockerfile
+      args:
+        JAR_FILE: target/*.jar
+    ports:
+      - "9000:9000"
+    environment:
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka:8761/eureka/
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER-URI=http://keycloak:8080/realms/yads
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    networks:
+      - yads-network
+
+  # --- MICROSERVICES ---
+
+  store-service:
+    build:
+      context: ./store-service
+      dockerfile: ../Dockerfile
+      args:
+        JAR_FILE: target/*.jar
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://store-service-postgres:5432/store_service_db
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka:8761/eureka/
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER-URI=http://keycloak:8080/realms/yads
+    depends_on:
+      store-service-postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    networks:
+      - yads-network
+
+  order-service:
+    build:
+      context: ./order-service
+      dockerfile: ../Dockerfile
+      args:
+        JAR_FILE: target/*.jar
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://order-service-postgres:5432/order_service_db
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka:8761/eureka/
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER-URI=http://keycloak:8080/realms/yads
+    depends_on:
+      order-service-postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    networks:
+      - yads-network
+
+  user-service:
+    build:
+      context: ./user-service
+      dockerfile: ../Dockerfile
+      args:
+        JAR_FILE: target/*.jar
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://user-service-postgres:5432/user_service_db
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka:8761/eureka/
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER-URI=http://keycloak:8080/realms/yads
+    depends_on:
+      user-service-postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    networks:
+      - yads-network
+
+  courier-service:
+    build:
+      context: ./courier-service
+      dockerfile: ../Dockerfile
+      args:
+        JAR_FILE: target/*.jar
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://courier-service-postgres:5432/courier_service_db
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka:8761/eureka/
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER-URI=http://keycloak:8080/realms/yads
+    depends_on:
+      courier-service-postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    networks:
+      - yads-network
+
+  notification-service:
+    build:
+      context: ./notification-service
+      dockerfile: ../Dockerfile
+      args:
+        JAR_FILE: target/*.jar
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://notification-service-postgres:5432/notification_service_db
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka:8761/eureka/
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER-URI=http://keycloak:8080/realms/yads
+    depends_on:
+      notification-service-postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    networks:
+      - yads-network
+
+  # --- DATABASES ---
+
   store-service-postgres:
     image: postgres:16-alpine
     container_name: store-service-postgres
@@ -6,10 +163,16 @@ services:
       POSTGRES_DB: store_service_db
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
-    ports:
-      - "5432:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     volumes:
       - postgres_data_store:/var/lib/postgresql/data
+    networks:
+      - yads-network
+
   user-service-postgres:
     image: postgres:16-alpine
     container_name: user-service-postgres
@@ -17,10 +180,16 @@ services:
       POSTGRES_DB: user_service_db
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
-    ports:
-      - "5433:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     volumes:
       - postgres_data_user:/var/lib/postgresql/data
+    networks:
+      - yads-network
+
   order-service-postgres:
     image: postgres:16-alpine
     container_name: order-service-postgres
@@ -28,10 +197,16 @@ services:
       POSTGRES_DB: order_service_db
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
-    ports:
-      - "5434:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     volumes:
       - postgres_data_order:/var/lib/postgresql/data
+    networks:
+      - yads-network
+
   courier-service-postgres:
     image: postgres:16-alpine
     container_name: courier-service-postgres
@@ -39,10 +214,16 @@ services:
       POSTGRES_DB: courier_service_db
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
-    ports:
-      - "5435:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     volumes:
       - postgres_data_courier:/var/lib/postgresql/data
+    networks:
+      - yads-network
+
   notification-service-postgres:
     image: postgres:16-alpine
     container_name: notification-service-postgres
@@ -50,24 +231,33 @@ services:
       POSTGRES_DB: notification_service_db
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
-    ports:
-      - "5436:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     volumes:
       - postgres_data_notification:/var/lib/postgresql/data
+    networks:
+      - yads-network
 
-  # Keycloak's Database
   keycloak_db:
-    image: postgres:16
+    image: postgres:16-alpine
     container_name: kc_postgres
-    restart: unless-stopped
     environment:
       POSTGRES_DB: keycloak_db
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     volumes:
       - postgres_data_keycloak:/var/lib/postgresql/data
+    networks:
+      - yads-network
 
-  # Keycloak Authentication Service
   keycloak:
     image: quay.io/keycloak/keycloak:latest
     container_name: keycloak
@@ -80,20 +270,46 @@ services:
       KC_DB_PASSWORD: password
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: 1234
+      KC_HTTP_ENABLED: true
+      KC_HOSTNAME_STRICT: false
+      KC_HOSTNAME_STRICT_HTTPS: false
+      KC_HEALTH_ENABLED: true
+    healthcheck:
+      test: [ "CMD", "bash", "-c", "cat < /dev/null > /dev/tcp/127.0.0.1/8080" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
     ports:
       - "8700:8080"
+    depends_on:
+      - keycloak_db
+    networks:
+      - yads-network
+
   rabbitmq:
     image: rabbitmq:3.13-management
-    container_name: 'rabbitmq'
-    hostname: 'yads-rabbit'
+    container_name: rabbitmq
+    hostname: yads-rabbit
     ports:
       - "5672:5672"
       - "15672:15672"
     environment:
       - RABBITMQ_DEFAULT_USER=guest
       - RABBITMQ_DEFAULT_PASS=guest
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "-q", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq/
+    networks:
+      - yads-network
+
+networks:
+  yads-network:
+    driver: bridge
 
 volumes:
   postgres_data_store:
