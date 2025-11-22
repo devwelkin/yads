@@ -35,7 +35,9 @@ services:
       - "9000:9000"
     environment:
       - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka:8761/eureka/
-      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=http://keycloak:8080/realms/yads-realm
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=http://localhost:8700/realms/yads-realm
+      # jwk-set-uri anahtarları çekmek için kullanılır (docker içi iletişim)
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI=http://keycloak:8080/realms/yads-realm/protocol/openid-connect/certs
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -58,7 +60,9 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://store-service-postgres:5432/store_service_db
       - SPRING_RABBITMQ_HOST=rabbitmq
       - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka:8761/eureka/
-      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=http://keycloak:8080/realms/yads-realm
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=http://localhost:8700/realms/yads-realm
+      # jwk-set-uri anahtarları çekmek için kullanılır (docker içi iletişim)
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI=http://keycloak:8080/realms/yads-realm/protocol/openid-connect/certs
     depends_on:
       store-service-postgres:
         condition: service_healthy
@@ -81,7 +85,9 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://order-service-postgres:5432/order_service_db
       - SPRING_RABBITMQ_HOST=rabbitmq
       - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka:8761/eureka/
-      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=http://keycloak:8080/realms/yads-realm
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=http://localhost:8700/realms/yads-realm
+      # jwk-set-uri anahtarları çekmek için kullanılır (docker içi iletişim)
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI=http://keycloak:8080/realms/yads-realm/protocol/openid-connect/certs
     depends_on:
       order-service-postgres:
         condition: service_healthy
@@ -103,7 +109,9 @@ services:
     environment:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://user-service-postgres:5432/user_service_db
       - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka:8761/eureka/
-      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=http://keycloak:8080/realms/yads-realm
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=http://localhost:8700/realms/yads-realm
+      # jwk-set-uri anahtarları çekmek için kullanılır (docker içi iletişim)
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI=http://keycloak:8080/realms/yads-realm/protocol/openid-connect/certs
     depends_on:
       user-service-postgres:
         condition: service_healthy
@@ -126,7 +134,9 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://courier-service-postgres:5432/courier_service_db
       - SPRING_RABBITMQ_HOST=rabbitmq
       - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka:8761/eureka/
-      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=http://keycloak:8080/realms/yads-realm
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=http://localhost:8700/realms/yads-realm
+      # jwk-set-uri anahtarları çekmek için kullanılır (docker içi iletişim)
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI=http://keycloak:8080/realms/yads-realm/protocol/openid-connect/certs
     depends_on:
       courier-service-postgres:
         condition: service_healthy
@@ -149,7 +159,9 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://notification-service-postgres:5432/notification_service_db
       - SPRING_RABBITMQ_HOST=rabbitmq
       - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka:8761/eureka/
-      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=http://keycloak:8080/realms/yads-realm
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=http://localhost:8700/realms/yads-realm
+      # jwk-set-uri anahtarları çekmek için kullanılır (docker içi iletişim)
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI=http://keycloak:8080/realms/yads-realm/protocol/openid-connect/certs
     depends_on:
       notification-service-postgres:
         condition: service_healthy
