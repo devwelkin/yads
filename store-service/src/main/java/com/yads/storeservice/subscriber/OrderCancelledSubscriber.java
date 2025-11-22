@@ -2,6 +2,7 @@ package com.yads.storeservice.subscriber;
 
 import com.yads.common.contracts.OrderCancelledContract;
 import com.yads.common.dto.BatchReserveStockRequest;
+import com.yads.storeservice.config.AmqpConfig;
 import com.yads.storeservice.model.IdempotentEvent;
 import com.yads.storeservice.repository.IdempotentEventRepository;
 import com.yads.storeservice.services.ProductService;
@@ -65,7 +66,7 @@ public class OrderCancelledSubscriber {
      * CRITICAL: Checks oldStatus to prevent GHOST INVENTORY.
      * If oldStatus=PENDING, stock was never deducted, so we skip restoration.
      */
-    @RabbitListener(queues = "order_cancelled_stock_restore_queue")
+    @RabbitListener(queues = AmqpConfig.Q_STOCK_RESTORE)
     @Transactional
     public void handleOrderCancelled(OrderCancelledContract contract) {
         try {

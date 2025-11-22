@@ -2,6 +2,7 @@ package com.yads.courierservice;
 
 import com.yads.common.contracts.OrderAssignmentContract;
 import com.yads.common.model.Address;
+import com.yads.courierservice.config.AmqpConfig;
 import com.yads.courierservice.model.Courier;
 import com.yads.courierservice.model.CourierStatus;
 import com.yads.courierservice.model.OutboxEvent;
@@ -141,7 +142,7 @@ public class CourierAssignmentIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // ACT: Send order assignment event
-    rabbitTemplate.convertAndSend("q.courier_service.assign_order", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_ASSIGN_ORDER, contract);
 
     // ASSERT: Nearest courier should be marked as BUSY
     await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -209,7 +210,7 @@ public class CourierAssignmentIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // ACT
-    rabbitTemplate.convertAndSend("q.courier_service.assign_order", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_ASSIGN_ORDER, contract);
 
     // ASSERT: Valid courier should be assigned (courier without location skipped)
     await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -270,7 +271,7 @@ public class CourierAssignmentIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // ACT
-    rabbitTemplate.convertAndSend("q.courier_service.assign_order", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_ASSIGN_ORDER, contract);
 
     // ASSERT: Only AVAILABLE courier should be assigned
     await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -332,8 +333,8 @@ public class CourierAssignmentIntegrationTest extends AbstractIntegrationTest {
         .shippingAddress(new Address())
         .build();
 
-    rabbitTemplate.convertAndSend("q.courier_service.assign_order", contract1);
-    rabbitTemplate.convertAndSend("q.courier_service.assign_order", contract2);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_ASSIGN_ORDER, contract1);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_ASSIGN_ORDER, contract2);
 
     // ASSERT: Both couriers should be assigned (one per order)
     await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {

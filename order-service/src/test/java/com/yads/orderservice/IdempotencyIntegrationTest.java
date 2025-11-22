@@ -3,6 +3,7 @@ package com.yads.orderservice;
 import com.yads.common.contracts.CourierAssignedContract;
 import com.yads.common.contracts.StockReservedContract;
 import com.yads.common.model.Address;
+import com.yads.orderservice.config.AmqpConfig;
 import com.yads.orderservice.model.Order;
 import com.yads.orderservice.model.OrderStatus;
 import com.yads.orderservice.repository.OrderRepository;
@@ -59,7 +60,7 @@ public class IdempotencyIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // ACT: Send the SAME event TWICE
-    rabbitTemplate.convertAndSend("q.order_service.courier_assigned", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_COURIER_ASSIGNED, contract);
 
     // Wait for first processing
     await().atMost(3, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -68,7 +69,7 @@ public class IdempotencyIntegrationTest extends AbstractIntegrationTest {
     });
 
     // Send duplicate event
-    rabbitTemplate.convertAndSend("q.order_service.courier_assigned", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_COURIER_ASSIGNED, contract);
 
     // Wait a bit to ensure second event is also processed
     try {
@@ -108,7 +109,7 @@ public class IdempotencyIntegrationTest extends AbstractIntegrationTest {
         .courierId(newCourierId)
         .build();
 
-    rabbitTemplate.convertAndSend("q.order_service.courier_assigned", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_COURIER_ASSIGNED, contract);
 
     // Wait for processing
     try {
@@ -151,7 +152,7 @@ public class IdempotencyIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // ACT: Send the SAME event TWICE
-    rabbitTemplate.convertAndSend("q.order_service.stock_reserved", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_STOCK_RESERVED, contract);
 
     // Wait for first processing
     await().atMost(3, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -161,7 +162,7 @@ public class IdempotencyIntegrationTest extends AbstractIntegrationTest {
     });
 
     // Send duplicate event
-    rabbitTemplate.convertAndSend("q.order_service.stock_reserved", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_STOCK_RESERVED, contract);
 
     // Wait for second processing attempt
     try {
@@ -201,7 +202,7 @@ public class IdempotencyIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // ACT: Send stock reserved event for cancelled order
-    rabbitTemplate.convertAndSend("q.order_service.stock_reserved", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_STOCK_RESERVED, contract);
 
     // Wait for processing
     try {
@@ -236,7 +237,7 @@ public class IdempotencyIntegrationTest extends AbstractIntegrationTest {
         .courierId(UUID.randomUUID())
         .build();
 
-    rabbitTemplate.convertAndSend("q.order_service.courier_assigned", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_COURIER_ASSIGNED, contract);
 
     // Wait for processing
     try {
@@ -272,7 +273,7 @@ public class IdempotencyIntegrationTest extends AbstractIntegrationTest {
         .courierId(existingCourierId)
         .build();
 
-    rabbitTemplate.convertAndSend("q.order_service.courier_assigned", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_COURIER_ASSIGNED, contract);
 
     // Wait for processing
     try {
@@ -309,7 +310,7 @@ public class IdempotencyIntegrationTest extends AbstractIntegrationTest {
 
     // ACT: Send the same event 5 times rapidly
     for (int i = 0; i < 5; i++) {
-      rabbitTemplate.convertAndSend("q.order_service.courier_assigned", contract);
+      rabbitTemplate.convertAndSend(AmqpConfig.Q_COURIER_ASSIGNED, contract);
     }
 
     // Wait for all events to be processed

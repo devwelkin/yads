@@ -5,6 +5,7 @@ import com.yads.common.contracts.StockReservedContract;
 import com.yads.common.contracts.OrderAssignmentContract;
 import com.yads.common.contracts.OrderCancelledContract;
 import com.yads.common.model.Address;
+import com.yads.orderservice.config.AmqpConfig;
 import com.yads.orderservice.model.Order;
 import com.yads.orderservice.model.OrderStatus;
 import com.yads.orderservice.repository.OrderRepository;
@@ -115,7 +116,7 @@ public class StockReplyIntegrationTest extends AbstractIntegrationTest {
 
         // 2. ACT
         // Store service gibi davranıp senin kuyruğuna mesaj atıyoruz
-        rabbitTemplate.convertAndSend("q.order_service.stock_reserved", contract);
+        rabbitTemplate.convertAndSend(AmqpConfig.Q_STOCK_RESERVED, contract);
 
         // 3. ASSERT (DB Degisikligi)
         // Async olduğu için anında değişmez, bekliyoruz.
@@ -137,7 +138,8 @@ public class StockReplyIntegrationTest extends AbstractIntegrationTest {
             Object payload = rabbitTemplate.getMessageConverter().fromMessage(message);
 
             // now this should work
-            assertInstanceOf(OrderAssignmentContract.class, payload, "Expected OrderAssignmentContract but got " + payload.getClass().getName());
+            assertInstanceOf(OrderAssignmentContract.class, payload,
+                    "Expected OrderAssignmentContract but got " + payload.getClass().getName());
 
             OrderAssignmentContract event = (OrderAssignmentContract) payload;
             assertEquals(orderId, event.getOrderId());
@@ -168,7 +170,7 @@ public class StockReplyIntegrationTest extends AbstractIntegrationTest {
                 .build();
 
         // 2. ACT
-        rabbitTemplate.convertAndSend("q.order_service.stock_reservation_failed", contract);
+        rabbitTemplate.convertAndSend(AmqpConfig.Q_STOCK_RESERVATION_FAILED, contract);
 
         // 3. ASSERT (DB)
         await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -186,7 +188,8 @@ public class StockReplyIntegrationTest extends AbstractIntegrationTest {
             Message message = (Message) captured;
             Object payload = rabbitTemplate.getMessageConverter().fromMessage(message);
 
-            assertInstanceOf(OrderCancelledContract.class, payload, "expected OrderCancelledContract but got " + payload.getClass().getName());
+            assertInstanceOf(OrderCancelledContract.class, payload,
+                    "expected OrderCancelledContract but got " + payload.getClass().getName());
 
             OrderCancelledContract event = (OrderCancelledContract) payload;
             assertEquals("RESERVING_STOCK", event.getOldStatus());

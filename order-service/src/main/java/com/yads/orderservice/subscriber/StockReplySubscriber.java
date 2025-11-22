@@ -4,6 +4,7 @@ import com.yads.common.contracts.StockReservationFailedContract;
 import com.yads.common.contracts.StockReservedContract;
 import com.yads.common.contracts.OrderAssignmentContract;
 import com.yads.common.contracts.OrderCancelledContract;
+import com.yads.orderservice.config.AmqpConfig;
 import com.yads.orderservice.model.Order;
 import com.yads.orderservice.model.OrderStatus;
 import com.yads.orderservice.repository.OrderRepository;
@@ -20,7 +21,8 @@ import java.util.UUID;
 
 /**
  * Subscriber that handles stock reservation saga responses from store-service.
- * This completes the async order acceptance flow initiated in OrderServiceImpl.acceptOrder().
+ * This completes the async order acceptance flow initiated in
+ * OrderServiceImpl.acceptOrder().
  */
 @Component
 @RequiredArgsConstructor
@@ -32,9 +34,10 @@ public class StockReplySubscriber {
 
     /**
      * Handles successful stock reservation.
-     * Updates order status to PREPARING, saves pickup address, and triggers courier assignment saga.
+     * Updates order status to PREPARING, saves pickup address, and triggers courier
+     * assignment saga.
      */
-    @RabbitListener(queues = "q.order_service.stock_reserved")
+    @RabbitListener(queues = AmqpConfig.Q_STOCK_RESERVED)
     @Transactional
     public void handleStockReserved(StockReservedContract contract) {
         log.info("Received 'order.stock_reserved' event. orderId={}", contract.getOrderId());
@@ -68,7 +71,8 @@ public class StockReplySubscriber {
             log.info("'order.preparing' (for courier assignment) event sent. orderId={}", order.getId());
         } catch (Exception e) {
             log.error("Failed to send 'order.preparing' event. orderId={}. error: {}", order.getId(), e.getMessage());
-            // Courier assignment failure should be handled by retry mechanism or dead letter queue
+            // Courier assignment failure should be handled by retry mechanism or dead
+            // letter queue
         }
     }
 
@@ -76,7 +80,7 @@ public class StockReplySubscriber {
      * Handles failed stock reservation.
      * Cancels the order and notifies customer about the cancellation.
      */
-    @RabbitListener(queues = "q.order_service.stock_reservation_failed")
+    @RabbitListener(queues = AmqpConfig.Q_STOCK_RESERVATION_FAILED)
     @Transactional
     public void handleStockReservationFailed(StockReservationFailedContract contract) {
         log.info("Received 'order.stock_reservation_failed' event. orderId={}, reason: {}",
@@ -109,7 +113,8 @@ public class StockReplySubscriber {
             log.info("Sent 'order.cancelled' event for customer notification. orderId={}, reason: {}",
                     order.getId(), contract.getReason());
         } catch (Exception e) {
-            log.error("Failed to send failure notification event. orderId={}. error: {}", order.getId(), e.getMessage());
+            log.error("Failed to send failure notification event. orderId={}. error: {}", order.getId(),
+                    e.getMessage());
         }
     }
 
@@ -123,4 +128,3 @@ public class StockReplySubscriber {
                 });
     }
 }
-

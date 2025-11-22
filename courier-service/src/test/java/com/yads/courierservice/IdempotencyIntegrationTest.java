@@ -2,6 +2,7 @@ package com.yads.courierservice;
 
 import com.yads.common.contracts.OrderAssignmentContract;
 import com.yads.common.model.Address;
+import com.yads.courierservice.config.AmqpConfig;
 import com.yads.courierservice.model.Courier;
 import com.yads.courierservice.model.CourierStatus;
 import com.yads.courierservice.model.IdempotentEvent;
@@ -77,7 +78,7 @@ public class IdempotencyIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // ACT: Send the SAME event TWICE
-    rabbitTemplate.convertAndSend("q.courier_service.assign_order", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_ASSIGN_ORDER, contract);
 
     // Wait for first processing
     await().atMost(3, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -86,7 +87,7 @@ public class IdempotencyIntegrationTest extends AbstractIntegrationTest {
     });
 
     // Send duplicate event AFTER first is processed
-    rabbitTemplate.convertAndSend("q.courier_service.assign_order", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_ASSIGN_ORDER, contract);
 
     // Wait for second event processing attempt
     try {
@@ -149,7 +150,7 @@ public class IdempotencyIntegrationTest extends AbstractIntegrationTest {
 
     // ACT: Send assignment event (should be ignored due to existing idempotency
     // key)
-    rabbitTemplate.convertAndSend("q.courier_service.assign_order", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_ASSIGN_ORDER, contract);
 
     // Wait for processing attempt
     try {
@@ -219,8 +220,8 @@ public class IdempotencyIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // ACT: Process both orders
-    rabbitTemplate.convertAndSend("q.courier_service.assign_order", contract1);
-    rabbitTemplate.convertAndSend("q.courier_service.assign_order", contract2);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_ASSIGN_ORDER, contract1);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_ASSIGN_ORDER, contract2);
 
     // ASSERT: Both orders should be processed (different idempotency keys)
     await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -268,7 +269,7 @@ public class IdempotencyIntegrationTest extends AbstractIntegrationTest {
 
     // ACT: Send 5 duplicate events rapidly (stress test)
     for (int i = 0; i < 5; i++) {
-      rabbitTemplate.convertAndSend("q.courier_service.assign_order", contract);
+      rabbitTemplate.convertAndSend(AmqpConfig.Q_ASSIGN_ORDER, contract);
     }
 
     // Wait for all events to be processed

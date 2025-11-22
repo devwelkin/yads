@@ -2,6 +2,7 @@ package com.yads.storeservice;
 
 import com.yads.common.contracts.OrderCancelledContract;
 import com.yads.common.dto.BatchReserveItem;
+import com.yads.storeservice.config.AmqpConfig;
 import com.yads.storeservice.model.Category;
 import com.yads.storeservice.model.Product;
 import com.yads.storeservice.model.Store;
@@ -119,7 +120,7 @@ public class OrderCancelledIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // 2. ACT: Send cancellation event
-    rabbitTemplate.convertAndSend("order_cancelled_stock_restore_queue", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_STOCK_RESTORE, contract);
 
     // 3. ASSERT: Stock restored
     await().atMost(3, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -151,7 +152,7 @@ public class OrderCancelledIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // 2. ACT
-    rabbitTemplate.convertAndSend("order_cancelled_stock_restore_queue", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_STOCK_RESTORE, contract);
 
     // 3. ASSERT
     await().atMost(3, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -179,7 +180,7 @@ public class OrderCancelledIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // 2. ACT
-    rabbitTemplate.convertAndSend("order_cancelled_stock_restore_queue", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_STOCK_RESTORE, contract);
 
     // Give time to process (if it were to process incorrectly)
     try {
@@ -216,7 +217,7 @@ public class OrderCancelledIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // 2. ACT: Send FIRST cancellation
-    rabbitTemplate.convertAndSend("order_cancelled_stock_restore_queue", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_STOCK_RESTORE, contract);
 
     await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {
       Product restored = productRepository.findById(product.getId()).orElseThrow();
@@ -224,7 +225,7 @@ public class OrderCancelledIntegrationTest extends AbstractIntegrationTest {
     });
 
     // 3. ACT: Send DUPLICATE cancellation
-    rabbitTemplate.convertAndSend("order_cancelled_stock_restore_queue", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_STOCK_RESTORE, contract);
 
     try {
       Thread.sleep(2000);
@@ -259,7 +260,7 @@ public class OrderCancelledIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // 2. ACT
-    rabbitTemplate.convertAndSend("order_cancelled_stock_restore_queue", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_STOCK_RESTORE, contract);
 
     // 3. ASSERT: Product available again
     await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -304,7 +305,7 @@ public class OrderCancelledIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // 2. ACT
-    rabbitTemplate.convertAndSend("order_cancelled_stock_restore_queue", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_STOCK_RESTORE, contract);
 
     // 3. ASSERT: Both products restored
     await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {

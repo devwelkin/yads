@@ -2,6 +2,7 @@ package com.yads.courierservice;
 
 import com.yads.common.contracts.OrderAssignmentContract;
 import com.yads.common.model.Address;
+import com.yads.courierservice.config.AmqpConfig;
 import com.yads.courierservice.model.Courier;
 import com.yads.courierservice.model.CourierStatus;
 import com.yads.courierservice.model.OutboxEvent;
@@ -73,7 +74,7 @@ public class AssignmentFailureIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // ACT: Send assignment request
-    rabbitTemplate.convertAndSend("q.courier_service.assign_order", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_ASSIGN_ORDER, contract);
 
     // ASSERT: courier.assignment.failed event should be created
     await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -128,7 +129,7 @@ public class AssignmentFailureIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // ACT
-    rabbitTemplate.convertAndSend("q.courier_service.assign_order", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_ASSIGN_ORDER, contract);
 
     // ASSERT: Failure event should be published
     await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -177,7 +178,7 @@ public class AssignmentFailureIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // ACT
-    rabbitTemplate.convertAndSend("q.courier_service.assign_order", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_ASSIGN_ORDER, contract);
 
     // ASSERT
     await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -219,7 +220,7 @@ public class AssignmentFailureIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // ACT
-    rabbitTemplate.convertAndSend("q.courier_service.assign_order", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_ASSIGN_ORDER, contract);
 
     // ASSERT: Failure event should be published
     await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -264,7 +265,7 @@ public class AssignmentFailureIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // ACT
-    rabbitTemplate.convertAndSend("q.courier_service.assign_order", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_ASSIGN_ORDER, contract);
 
     // ASSERT
     await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -295,7 +296,7 @@ public class AssignmentFailureIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // ACT
-    rabbitTemplate.convertAndSend("q.courier_service.assign_order", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_ASSIGN_ORDER, contract);
 
     // ASSERT: Event payload should contain failure reason
     await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -342,7 +343,7 @@ public class AssignmentFailureIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // ACT
-    rabbitTemplate.convertAndSend("q.courier_service.assign_order", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_ASSIGN_ORDER, contract);
 
     // ASSERT: Courier should still be assigned (distance sorting skipped, but
     // assignment continues)

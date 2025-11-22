@@ -4,6 +4,7 @@ import com.yads.common.contracts.CourierAssignmentFailedContract;
 import com.yads.common.contracts.OrderCancelledContract;
 import com.yads.common.dto.BatchReserveItem;
 import java.util.stream.Collectors;
+import com.yads.orderservice.config.AmqpConfig;
 import com.yads.orderservice.model.Order;
 import com.yads.orderservice.model.OrderStatus;
 import com.yads.orderservice.repository.OrderRepository;
@@ -31,7 +32,7 @@ public class CourierAssignmentFailedSubscriber {
          * Handles courier assignment failure.
          * Cancels the order and notifies customer and store owner.
          */
-        @RabbitListener(queues = "q.order_service.courier_assignment_failed")
+        @RabbitListener(queues = AmqpConfig.Q_COURIER_ASSIGNMENT_FAILED)
         @Transactional
         public void handleCourierAssignmentFailed(CourierAssignmentFailedContract contract) {
                 log.info("Received 'courier.assignment.failed' event. orderId={}, reason: {}",

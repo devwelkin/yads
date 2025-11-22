@@ -5,6 +5,7 @@ import com.yads.common.contracts.CourierAssignedContract;
 import com.yads.common.contracts.CourierAssignmentFailedContract;
 import com.yads.common.contracts.OrderAssignedContract;
 import com.yads.common.contracts.OrderCancelledContract;
+import com.yads.orderservice.config.AmqpConfig;
 import com.yads.orderservice.model.Order;
 import com.yads.orderservice.model.OrderItem;
 import com.yads.orderservice.model.OrderStatus;
@@ -107,7 +108,7 @@ public class CourierIntegrationTest extends AbstractIntegrationTest {
                 .build();
 
         // 2. ACT: Courier Service'den mesaj gelmis gibi yapiyoruz
-        rabbitTemplate.convertAndSend("q.order_service.courier_assigned", contract);
+        rabbitTemplate.convertAndSend(AmqpConfig.Q_COURIER_ASSIGNED, contract);
 
         // 3. ASSERT: DB Update
         await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -139,7 +140,7 @@ public class CourierIntegrationTest extends AbstractIntegrationTest {
     @Test
     void should_ignore_assignment_if_order_cancelled() throws InterruptedException {
         Order order = new Order();
-// constraints don't care about your test context. feed the beast.
+        // constraints don't care about your test context. feed the beast.
         order.setStoreId(UUID.randomUUID());
         order.setUserId(UUID.randomUUID());
         order.setTotalPrice(BigDecimal.TEN); // probably needed too
@@ -154,7 +155,7 @@ public class CourierIntegrationTest extends AbstractIntegrationTest {
                 .build();
 
         // 2. ACT
-        rabbitTemplate.convertAndSend("q.order_service.courier_assigned", contract);
+        rabbitTemplate.convertAndSend(AmqpConfig.Q_COURIER_ASSIGNED, contract);
 
         // 3. ASSERT
         // Async oldugu icin "hicbir sey olmadigini" kanitlamak zordur.
@@ -193,7 +194,7 @@ public class CourierIntegrationTest extends AbstractIntegrationTest {
                 .build();
 
         // 2. ACT
-        rabbitTemplate.convertAndSend("q.order_service.courier_assignment_failed", contract);
+        rabbitTemplate.convertAndSend(AmqpConfig.Q_COURIER_ASSIGNMENT_FAILED, contract);
 
         // 3. ASSERT: DB Cancelled
         await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {

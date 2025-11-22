@@ -1,6 +1,7 @@
 package com.yads.orderservice;
 
 import com.yads.common.contracts.ProductEventDto;
+import com.yads.orderservice.config.AmqpConfig;
 import com.yads.orderservice.model.ProductSnapshot;
 import com.yads.orderservice.repository.ProductSnapshotRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,9 +46,11 @@ public class ProductSnapshotIntegrationTest extends AbstractIntegrationTest {
 
         // 2. ACT
         // Store service'in attigi mesaji taklit ediyoruz.
-        // Routing key kullanmadik cunku subscriber direkt queue ismine bind olmus olabilir.
-        // Eger exchange kullaniyorsan exchange ismini yaz. Kodda queue="q.order_service.product_updates" demissin.
-        rabbitTemplate.convertAndSend("q.order_service.product_updates", event);
+        // Routing key kullanmadik cunku subscriber direkt queue ismine bind olmus
+        // olabilir.
+        // Eger exchange kullaniyorsan exchange ismini yaz. Kodda
+        // queue="q.order.product.updates" demissin.
+        rabbitTemplate.convertAndSend(AmqpConfig.Q_PRODUCT_UPDATES, event);
 
         // 3. ASSERT
         await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -59,7 +62,7 @@ public class ProductSnapshotIntegrationTest extends AbstractIntegrationTest {
 
         // UPDATE TESTI (Upsert mantigi calisiyor mu?)
         event.setPrice(BigDecimal.valueOf(1500.0)); // indirim geldi
-        rabbitTemplate.convertAndSend("q.order_service.product_updates", event);
+        rabbitTemplate.convertAndSend(AmqpConfig.Q_PRODUCT_UPDATES, event);
 
         await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {
             ProductSnapshot snapshot = repository.findById(productId).orElseThrow();
@@ -83,7 +86,7 @@ public class ProductSnapshotIntegrationTest extends AbstractIntegrationTest {
 
         // 2. ACT
         // RabbitHandler silme islemi icin UUID bekliyor (DTO degil)
-        rabbitTemplate.convertAndSend("q.order_service.product_updates", productId);
+        rabbitTemplate.convertAndSend(AmqpConfig.Q_PRODUCT_UPDATES, productId);
 
         // 3. ASSERT
         await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {

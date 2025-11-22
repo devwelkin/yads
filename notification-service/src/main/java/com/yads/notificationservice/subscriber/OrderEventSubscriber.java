@@ -4,6 +4,7 @@ import com.yads.common.contracts.OrderAssignedContract;
 import com.yads.common.contracts.OrderAssignmentContract;
 import com.yads.common.contracts.OrderCancelledContract;
 import com.yads.common.contracts.OrderStatusChangeContract;
+import com.yads.notificationservice.config.AmqpConfig;
 import com.yads.notificationservice.model.NotificationType;
 import com.yads.notificationservice.service.NotificationService;
 import lombok.RequiredArgsConstructor;
@@ -23,7 +24,7 @@ import org.springframework.stereotype.Component;
  * queues.
  */
 @Component
-@RabbitListener(queues = "q.notification_service.order_events")
+@RabbitListener(queues = AmqpConfig.Q_ORDER_EVENTS)
 @RequiredArgsConstructor
 @Slf4j
 public class OrderEventSubscriber {

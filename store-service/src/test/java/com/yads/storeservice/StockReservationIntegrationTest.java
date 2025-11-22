@@ -3,6 +3,7 @@ package com.yads.storeservice;
 import com.yads.common.contracts.StockReservationRequestContract;
 import com.yads.common.dto.BatchReserveItem;
 import com.yads.common.model.Address;
+import com.yads.storeservice.config.AmqpConfig;
 import com.yads.storeservice.model.*;
 import com.yads.storeservice.repository.*;
 import org.junit.jupiter.api.AfterEach;
@@ -153,7 +154,7 @@ public class StockReservationIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // 2. ACT: Send stock reservation request
-    rabbitTemplate.convertAndSend("q.store_service.stock_reservation_request", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_STOCK_RESERVE, contract);
 
     // 3. ASSERT: DB Changes (Stock decreased)
     await().atMost(3, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -225,7 +226,7 @@ public class StockReservationIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // 2. ACT
-    rabbitTemplate.convertAndSend("q.store_service.stock_reservation_request", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_STOCK_RESERVE, contract);
 
     // 3. ASSERT: Stock unchanged (transaction rolled back)
     await().atMost(3, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -287,7 +288,7 @@ public class StockReservationIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // 2. ACT: Send FIRST request
-    rabbitTemplate.convertAndSend("q.store_service.stock_reservation_request", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_STOCK_RESERVE, contract);
 
     // Wait for processing
     await().atMost(3, TimeUnit.SECONDS).untilAsserted(() -> {
@@ -299,7 +300,7 @@ public class StockReservationIntegrationTest extends AbstractIntegrationTest {
     int outboxCountAfterFirst = outboxRepository.findAll().size();
 
     // 3. ACT: Send DUPLICATE request
-    rabbitTemplate.convertAndSend("q.store_service.stock_reservation_request", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_STOCK_RESERVE, contract);
 
     // Give it time to process (if it were to process)
     Thread.sleep(2000);
@@ -350,7 +351,7 @@ public class StockReservationIntegrationTest extends AbstractIntegrationTest {
         .build();
 
     // 2. ACT
-    rabbitTemplate.convertAndSend("q.store_service.stock_reservation_request", contract);
+    rabbitTemplate.convertAndSend(AmqpConfig.Q_STOCK_RESERVE, contract);
 
     // 3. ASSERT
     await().atMost(3, TimeUnit.SECONDS).untilAsserted(() -> {

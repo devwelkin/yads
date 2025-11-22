@@ -4,6 +4,7 @@ import com.yads.common.contracts.StockReservationFailedContract;
 import com.yads.common.contracts.StockReservationRequestContract;
 import com.yads.common.contracts.StockReservedContract;
 import com.yads.common.dto.BatchReserveStockRequest;
+import com.yads.storeservice.config.AmqpConfig;
 import com.yads.storeservice.model.IdempotentEvent;
 import com.yads.storeservice.model.OutboxEvent;
 import com.yads.storeservice.model.Store;
@@ -51,7 +52,7 @@ public class StockReservationSubscriber {
          * and publishes either success or failure event.
          */
         @Transactional
-        @RabbitListener(queues = "q.store_service.stock_reservation_request")
+        @RabbitListener(queues = AmqpConfig.Q_STOCK_RESERVE)
         public void handleStockReservationRequest(StockReservationRequestContract contract) {
                 log.info("Received 'order.stock_reservation.requested' event. orderId={}, storeId={}",
                                 contract.getOrderId(), contract.getStoreId());
