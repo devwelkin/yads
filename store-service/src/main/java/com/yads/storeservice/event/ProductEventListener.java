@@ -15,11 +15,6 @@ import java.time.LocalDateTime;
 /**
  * Listens to product events and saves them to the Outbox table.
  *
- * REFACTORED: Now uses the Outbox Pattern to ensure data consistency.
- * Instead of publishing directly to RabbitMQ (which could fail after DB
- * commit),
- * we save the event to the 'outbox_events' table within the SAME transaction.
- *
  * The OutboxPublisher job will later pick up these events and send them to
  * RabbitMQ.
  */
@@ -58,7 +53,7 @@ public class ProductEventListener {
         } catch (Exception e) {
             log.error("Failed to save product update event to Outbox: productId={}",
                     event.getProduct().getId(), e);
-            // Throwing exception here will rollback the transaction, which is what we want!
+            // Throwing exception here will rollback the transaction
             throw new RuntimeException("Failed to save outbox event", e);
         }
     }
@@ -72,8 +67,7 @@ public class ProductEventListener {
             saveOutboxEvent(
                     event.getProductId().toString(),
                     "product.deleted",
-                    event.getProductId() // Payload is just the UUID
-            );
+                    event.getProductId());
 
             log.info("Saved product delete event to Outbox: productId={}", event.getProductId());
 

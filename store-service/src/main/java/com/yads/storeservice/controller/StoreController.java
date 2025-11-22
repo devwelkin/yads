@@ -16,14 +16,15 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/v1/stores") // Base path for all endpoints in this controller
+@RequestMapping("/api/v1/stores")
 @RequiredArgsConstructor
 public class StoreController {
 
     private final StoreService storeService;
 
     @PostMapping
-    public ResponseEntity<StoreResponse> createStore(@Valid @RequestBody StoreRequest request, @AuthenticationPrincipal Jwt jwt) {
+    public ResponseEntity<StoreResponse> createStore(@Valid @RequestBody StoreRequest request,
+            @AuthenticationPrincipal Jwt jwt) {
         UUID ownerId = UUID.fromString(jwt.getSubject());
         StoreResponse createdStore = storeService.createStore(request, ownerId);
         return ResponseEntity.status(HttpStatus.CREATED).body(createdStore);
@@ -53,17 +54,17 @@ public class StoreController {
     }
 
     @PatchMapping("/{storeId}")
-    public ResponseEntity<StoreResponse> updateStore(@PathVariable UUID storeId, @Valid @RequestBody StoreRequest request , @AuthenticationPrincipal Jwt jwt) {
+    public ResponseEntity<StoreResponse> updateStore(@PathVariable UUID storeId,
+            @Valid @RequestBody StoreRequest request, @AuthenticationPrincipal Jwt jwt) {
         UUID ownerId = UUID.fromString(jwt.getSubject());
-        StoreResponse updatedStore = storeService.updateStore(storeId, request , ownerId);
+        StoreResponse updatedStore = storeService.updateStore(storeId, request, ownerId);
         return ResponseEntity.ok(updatedStore);
     }
 
     @DeleteMapping("/{storeId}")
-    public ResponseEntity<Void> deleteStore(@PathVariable UUID storeId , @AuthenticationPrincipal Jwt jwt) {
+    public ResponseEntity<Void> deleteStore(@PathVariable UUID storeId, @AuthenticationPrincipal Jwt jwt) {
         UUID ownerId = UUID.fromString(jwt.getSubject());
-        storeService.deleteStore(storeId , ownerId);
+        storeService.deleteStore(storeId, ownerId);
         return ResponseEntity.noContent().build();
     }
 }
-
