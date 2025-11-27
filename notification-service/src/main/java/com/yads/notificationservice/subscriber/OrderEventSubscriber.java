@@ -1,5 +1,6 @@
 package com.yads.notificationservice.subscriber;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yads.common.contracts.OrderAssignedContract;
 import com.yads.common.contracts.OrderAssignmentContract;
 import com.yads.common.contracts.OrderCancelledContract;
@@ -9,11 +10,12 @@ import com.yads.notificationservice.model.NotificationType;
 import com.yads.notificationservice.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitHandler;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.amqp.support.AmqpHeaders;
-import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
+
+import java.nio.charset.StandardCharsets;
 
 /**
  * Subscribes to order events from RabbitMQ and creates notifications.
@@ -30,19 +32,55 @@ import org.springframework.stereotype.Component;
 public class OrderEventSubscriber {
 
         private final NotificationService notificationService;
+        private final ObjectMapper objectMapper;
 
         /**
-         * Consolidated handler for OrderStatusChangeContract-based events.
-         * Handles: order.created, order.on_the_way, order.delivered
-         *
-         * Uses routing key to dispatch to appropriate logic, avoiding Spring AMQP's
-         * "Ambiguous methods" error when multiple @RabbitHandler methods accept same
-         * type.
+         * Single entry point for all messages - bypasses Spring's Jackson converter.
+         * Takes raw Message, extracts JSON manually, routes to appropriate handler.
          */
-        @RabbitHandler
-        public void handleOrderStatusChange(OrderStatusChangeContract contract,
-                        @Header(AmqpHeaders.RECEIVED_ROUTING_KEY) String routingKey) {
-                log.info("Received OrderStatusChange event: routingKey={}, orderId={}", routingKey,
+        @RabbitHandler(isDefault = true)
+        public void handleRawMessage(Message message) {
+                String routingKey = message.getMessageProperties().getReceivedRoutingKey();
+                log.info("Received raw message: routingKey={}", routingKey);
+
+                try {
+                        // Extract JSON manually - Spring's converter doesn't touch this
+                        String payloadJson = new String(message.getBody(), StandardCharsets.UTF_8);
+
+                        switch (routingKey) {
+                                case "order.created", "order.on_the_way", "order.delivered" -> {
+                                        OrderStatusChangeContract contract = objectMapper.readValue(payloadJson,
+                                                        OrderStatusChangeContract.class);
+                                        handleOrderStatusChange(contract, routingKey);
+                                }
+                                case "order.preparing" -> {
+                                        OrderAssignmentContract contract = objectMapper.readValue(payloadJson,
+                                                        OrderAssignmentContract.class);
+                                        handleOrderPreparing(contract);
+                                }
+                                case "order.assigned" -> {
+                                        OrderAssignedContract contract = objectMapper.readValue(payloadJson,
+                                                        OrderAssignedContract.class);
+                                        handleOrderAssigned(contract);
+                                }
+                                case "order.cancelled" -> {
+                                        OrderCancelledContract contract = objectMapper.readValue(payloadJson,
+                                                        OrderCancelledContract.class);
+                                        handleOrderCancelled(contract);
+                                }
+                                default -> log.warn("Unknown routing key: {}", routingKey);
+                        }
+                } catch (Exception e) {
+                        log.error("Failed to process message: routingKey={}, error={}", routingKey, e.getMessage(), e);
+                }
+        }
+
+        /**
+         * Internal handler for OrderStatusChangeContract events.
+         * Called from handleRawMessage after deserialization.
+         */
+        private void handleOrderStatusChange(OrderStatusChangeContract contract, String routingKey) {
+                log.info("Processing OrderStatusChange: routingKey={}, orderId={}", routingKey,
                                 contract.getOrderId());
 
                 switch (routingKey) {
@@ -82,8 +120,7 @@ public class OrderEventSubscriber {
          * NOTE: Does NOT notify courier - courier hasn't been assigned yet!
          * Courier will be notified via order.assigned event.
          */
-        @RabbitHandler
-        public void handleOrderPreparing(OrderAssignmentContract contract) {
+        private void handleOrderPreparing(OrderAssignmentContract contract) {
                 log.info("Received order.preparing event: orderId={}, storeId={}, userId={}",
                                 contract.getOrderId(), contract.getStoreId(), contract.getUserId());
 
@@ -111,11 +148,10 @@ public class OrderEventSubscriber {
         }
 
         /**
-         * Handles order.assigned events (NEW).
+         * Handles order.assigned events.
          * Notifies: Courier (you've been assigned to an order).
          */
-        @RabbitHandler
-        public void handleOrderAssigned(OrderAssignedContract contract) {
+        private void handleOrderAssigned(OrderAssignedContract contract) {
                 log.info("Received order.assigned event: orderId={}, courierId={}",
                                 contract.getOrderId(), contract.getCourierId());
 
@@ -216,8 +252,7 @@ public class OrderEventSubscriber {
          * Handles order.cancelled events.
          * Notifies: Customer + Store owner + Courier (if assigned).
          */
-        @RabbitHandler
-        public void handleOrderCancelled(OrderCancelledContract contract) {
+        private void handleOrderCancelled(OrderCancelledContract contract) {
                 log.info("Received order.cancelled event: orderId={}, oldStatus={}, userId={}, courierId={}",
                                 contract.getOrderId(), contract.getOldStatus(), contract.getUserId(),
                                 contract.getCourierId());

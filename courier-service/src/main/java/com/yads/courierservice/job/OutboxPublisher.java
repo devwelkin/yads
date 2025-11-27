@@ -1,15 +1,17 @@
 package com.yads.courierservice.job;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yads.courierservice.model.OutboxEvent;
 import com.yads.courierservice.repository.OutboxRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.core.Message;
+import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -20,7 +22,6 @@ public class OutboxPublisher {
 
   private final OutboxRepository outboxRepository;
   private final RabbitTemplate rabbitTemplate;
-  private final ObjectMapper objectMapper;
 
   @Scheduled(fixedDelay = 2000) // Run every 2 seconds
   @Transactional
@@ -36,13 +37,18 @@ public class OutboxPublisher {
 
     for (OutboxEvent event : events) {
       try {
-        Object payloadObj = objectMapper.readValue(event.getPayload(), Object.class);
-        rabbitTemplate.convertAndSend("courier_events_exchange", event.getType(), payloadObj);
+        // Send raw JSON string directly - no double serialization!
+        String jsonPayload = event.getPayload();
 
-        // 2. Soft Delete: Mark as processed instead of hard delete
+        MessageProperties props = new MessageProperties();
+        props.setContentType(MessageProperties.CONTENT_TYPE_JSON);
+        // Don't set __TypeId__ - let consumers handle raw JSON
+
+        Message message = new Message(jsonPayload.getBytes(StandardCharsets.UTF_8), props);
+        rabbitTemplate.send("courier_events_exchange", event.getType(), message);
+
+        // Soft Delete: Mark as processed instead of hard delete
         event.setProcessed(true);
-        // No need to call save() explicitly if inside @Transactional,
-        // but calling it is safe and explicit.
         outboxRepository.save(event);
 
         log.info("Published outbox event: id={}, type={}", event.getId(), event.getType());

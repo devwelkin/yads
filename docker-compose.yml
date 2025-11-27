@@ -165,6 +165,8 @@ services:
       dockerfile: ../Dockerfile
       args:
         JAR_FILE: target/*.jar
+    ports:
+      - "8085:8085"
     environment:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/notification_service_db
       - SPRING_RABBITMQ_HOST=rabbitmq

@@ -1,5 +1,6 @@
 package com.yads.notificationservice.subscriber;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yads.common.contracts.*;
 import com.yads.common.model.Address;
 import com.yads.notificationservice.model.NotificationType;
@@ -7,11 +8,13 @@ import com.yads.notificationservice.service.NotificationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.amqp.core.Message;
+import org.springframework.amqp.core.MessageProperties;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -28,7 +31,7 @@ class OrderEventSubscriberTest {
   @Mock
   private NotificationService notificationService;
 
-  @InjectMocks
+  private ObjectMapper objectMapper;
   private OrderEventSubscriber orderEventSubscriber;
 
   private UUID userId;
@@ -39,6 +42,10 @@ class OrderEventSubscriberTest {
 
   @BeforeEach
   void setUp() {
+    objectMapper = new ObjectMapper();
+    objectMapper.findAndRegisterModules(); // For Instant serialization
+    orderEventSubscriber = new OrderEventSubscriber(notificationService, objectMapper);
+
     userId = UUID.randomUUID();
     orderId = UUID.randomUUID();
     storeId = UUID.randomUUID();
@@ -51,8 +58,19 @@ class OrderEventSubscriberTest {
     address.setCountry("Turkey");
   }
 
+  /**
+   * Helper to create a raw Message like RabbitMQ would deliver.
+   */
+  private Message createMessage(Object payload, String routingKey) throws Exception {
+    String json = objectMapper.writeValueAsString(payload);
+    MessageProperties props = new MessageProperties();
+    props.setReceivedRoutingKey(routingKey);
+    props.setContentType(MessageProperties.CONTENT_TYPE_JSON);
+    return new Message(json.getBytes(StandardCharsets.UTF_8), props);
+  }
+
   @Test
-  void handleOrderStatusChange_OrderCreatedRoutingKey_ProcessesOrderCreated() {
+  void handleRawMessage_OrderCreatedRoutingKey_ProcessesOrderCreated() throws Exception {
     // Arrange
     OrderStatusChangeContract contract = new OrderStatusChangeContract();
     contract.setOrderId(orderId);
@@ -63,8 +81,10 @@ class OrderEventSubscriberTest {
     contract.setPickupAddress(address);
     contract.setShippingAddress(address);
 
+    Message message = createMessage(contract, "order.created");
+
     // Act
-    orderEventSubscriber.handleOrderStatusChange(contract, "order.created");
+    orderEventSubscriber.handleRawMessage(message);
 
     // Assert
     verify(notificationService).createAndSendNotification(
@@ -74,19 +94,21 @@ class OrderEventSubscriberTest {
         eq(orderId),
         eq(storeId),
         isNull(),
-        eq(contract));
+        any(OrderStatusChangeContract.class));
   }
 
   @Test
-  void handleOrderStatusChange_OrderOnTheWayRoutingKey_ProcessesOrderOnTheWay() {
+  void handleRawMessage_OrderOnTheWayRoutingKey_ProcessesOrderOnTheWay() throws Exception {
     // Arrange
     OrderStatusChangeContract contract = new OrderStatusChangeContract();
     contract.setOrderId(orderId);
     contract.setUserId(userId);
     contract.setCourierId(courierId);
 
+    Message message = createMessage(contract, "order.on_the_way");
+
     // Act
-    orderEventSubscriber.handleOrderStatusChange(contract, "order.on_the_way");
+    orderEventSubscriber.handleRawMessage(message);
 
     // Assert
     verify(notificationService).createAndSendNotification(
@@ -96,19 +118,21 @@ class OrderEventSubscriberTest {
         eq(orderId),
         isNull(),
         eq(courierId),
-        eq(contract));
+        any(OrderStatusChangeContract.class));
   }
 
   @Test
-  void handleOrderStatusChange_OrderDeliveredRoutingKey_ProcessesOrderDelivered() {
+  void handleRawMessage_OrderDeliveredRoutingKey_ProcessesOrderDelivered() throws Exception {
     // Arrange
     OrderStatusChangeContract contract = new OrderStatusChangeContract();
     contract.setOrderId(orderId);
     contract.setUserId(userId);
     contract.setCourierId(courierId);
 
+    Message message = createMessage(contract, "order.delivered");
+
     // Act
-    orderEventSubscriber.handleOrderStatusChange(contract, "order.delivered");
+    orderEventSubscriber.handleRawMessage(message);
 
     // Assert
     // Should send 2 notifications: customer + courier
@@ -119,18 +143,20 @@ class OrderEventSubscriberTest {
         eq(orderId),
         isNull(),
         eq(courierId),
-        eq(contract));
+        any(OrderStatusChangeContract.class));
   }
 
   @Test
-  void handleOrderStatusChange_UnknownRoutingKey_LogsWarning() {
+  void handleRawMessage_UnknownRoutingKey_LogsWarningNoNotification() throws Exception {
     // Arrange
     OrderStatusChangeContract contract = new OrderStatusChangeContract();
     contract.setOrderId(orderId);
     contract.setUserId(userId);
 
+    Message message = createMessage(contract, "order.unknown");
+
     // Act
-    orderEventSubscriber.handleOrderStatusChange(contract, "order.unknown");
+    orderEventSubscriber.handleRawMessage(message);
 
     // Assert - should not throw, just log
     verify(notificationService, never()).createAndSendNotification(
@@ -138,7 +164,7 @@ class OrderEventSubscriberTest {
   }
 
   @Test
-  void handleOrderPreparing_ValidContract_SendsNotificationToCustomer() {
+  void handleRawMessage_OrderPreparing_SendsNotificationToCustomer() throws Exception {
     // Arrange
     OrderAssignmentContract contract = new OrderAssignmentContract();
     contract.setOrderId(orderId);
@@ -147,8 +173,10 @@ class OrderEventSubscriberTest {
     contract.setPickupAddress(address);
     contract.setShippingAddress(address);
 
+    Message message = createMessage(contract, "order.preparing");
+
     // Act
-    orderEventSubscriber.handleOrderPreparing(contract);
+    orderEventSubscriber.handleRawMessage(message);
 
     // Assert
     verify(notificationService).createAndSendNotification(
@@ -158,11 +186,11 @@ class OrderEventSubscriberTest {
         eq(orderId),
         eq(storeId),
         isNull(),
-        eq(contract));
+        any(OrderAssignmentContract.class));
   }
 
   @Test
-  void handleOrderPreparing_ServiceThrowsException_CatchesAndLogs() {
+  void handleRawMessage_OrderPreparing_ServiceThrowsException_CatchesAndLogs() throws Exception {
     // Arrange
     OrderAssignmentContract contract = new OrderAssignmentContract();
     contract.setOrderId(orderId);
@@ -173,8 +201,10 @@ class OrderEventSubscriberTest {
         .when(notificationService).createAndSendNotification(
             any(), any(), anyString(), any(), any(), any(), any());
 
+    Message message = createMessage(contract, "order.preparing");
+
     // Act - should not throw
-    orderEventSubscriber.handleOrderPreparing(contract);
+    orderEventSubscriber.handleRawMessage(message);
 
     // Assert
     verify(notificationService).createAndSendNotification(
@@ -182,7 +212,7 @@ class OrderEventSubscriberTest {
   }
 
   @Test
-  void handleOrderAssigned_ValidContract_SendsNotificationToCourierAndCustomer() {
+  void handleRawMessage_OrderAssigned_SendsNotificationToCourierAndCustomer() throws Exception {
     // Arrange
     OrderAssignedContract contract = new OrderAssignedContract();
     contract.setOrderId(orderId);
@@ -192,8 +222,10 @@ class OrderEventSubscriberTest {
     contract.setPickupAddress(address);
     contract.setShippingAddress(address);
 
+    Message message = createMessage(contract, "order.assigned");
+
     // Act
-    orderEventSubscriber.handleOrderAssigned(contract);
+    orderEventSubscriber.handleRawMessage(message);
 
     // Assert - should send 2 notifications
     verify(notificationService, times(2)).createAndSendNotification(
@@ -203,7 +235,7 @@ class OrderEventSubscriberTest {
         eq(orderId),
         eq(storeId),
         eq(courierId),
-        eq(contract));
+        any(OrderAssignedContract.class));
 
     // Verify courier notification
     verify(notificationService).createAndSendNotification(
@@ -213,7 +245,7 @@ class OrderEventSubscriberTest {
         eq(orderId),
         eq(storeId),
         eq(courierId),
-        eq(contract));
+        any(OrderAssignedContract.class));
 
     // Verify customer notification
     verify(notificationService).createAndSendNotification(
@@ -223,11 +255,11 @@ class OrderEventSubscriberTest {
         eq(orderId),
         eq(storeId),
         eq(courierId),
-        eq(contract));
+        any(OrderAssignedContract.class));
   }
 
   @Test
-  void handleOrderCancelled_WithCourier_SendsNotificationToCustomerAndCourier() {
+  void handleRawMessage_OrderCancelled_WithCourier_SendsNotificationToCustomerAndCourier() throws Exception {
     // Arrange
     OrderCancelledContract contract = new OrderCancelledContract();
     contract.setOrderId(orderId);
@@ -235,8 +267,10 @@ class OrderEventSubscriberTest {
     contract.setCourierId(courierId);
     contract.setStoreId(storeId);
 
+    Message message = createMessage(contract, "order.cancelled");
+
     // Act
-    orderEventSubscriber.handleOrderCancelled(contract);
+    orderEventSubscriber.handleRawMessage(message);
 
     // Assert - should send 2 notifications
     verify(notificationService, times(2)).createAndSendNotification(
@@ -246,11 +280,11 @@ class OrderEventSubscriberTest {
         eq(orderId),
         eq(storeId),
         eq(courierId),
-        eq(contract));
+        any(OrderCancelledContract.class));
   }
 
   @Test
-  void handleOrderCancelled_WithoutCourier_SendsNotificationOnlyToCustomer() {
+  void handleRawMessage_OrderCancelled_WithoutCourier_SendsNotificationOnlyToCustomer() throws Exception {
     // Arrange
     OrderCancelledContract contract = new OrderCancelledContract();
     contract.setOrderId(orderId);
@@ -258,8 +292,10 @@ class OrderEventSubscriberTest {
     contract.setCourierId(null); // No courier assigned
     contract.setStoreId(storeId);
 
+    Message message = createMessage(contract, "order.cancelled");
+
     // Act
-    orderEventSubscriber.handleOrderCancelled(contract);
+    orderEventSubscriber.handleRawMessage(message);
 
     // Assert - should send only 1 notification to customer
     verify(notificationService, times(1)).createAndSendNotification(
@@ -269,19 +305,21 @@ class OrderEventSubscriberTest {
         eq(orderId),
         eq(storeId),
         isNull(),
-        eq(contract));
+        any(OrderCancelledContract.class));
   }
 
   @Test
-  void handleOrderDelivered_WithoutCourier_SendsOnlyCustomerNotification() {
+  void handleRawMessage_OrderDelivered_WithoutCourier_SendsOnlyCustomerNotification() throws Exception {
     // Arrange
     OrderStatusChangeContract contract = new OrderStatusChangeContract();
     contract.setOrderId(orderId);
     contract.setUserId(userId);
     contract.setCourierId(null); // No courier
 
+    Message message = createMessage(contract, "order.delivered");
+
     // Act
-    orderEventSubscriber.handleOrderStatusChange(contract, "order.delivered");
+    orderEventSubscriber.handleRawMessage(message);
 
     // Assert - should send only 1 notification to customer
     verify(notificationService, times(1)).createAndSendNotification(
@@ -291,11 +329,11 @@ class OrderEventSubscriberTest {
         eq(orderId),
         isNull(),
         isNull(),
-        eq(contract));
+        any(OrderStatusChangeContract.class));
   }
 
   @Test
-  void handleOrderCreated_ServiceThrowsException_CatchesAndLogs() {
+  void handleRawMessage_OrderCreated_ServiceThrowsException_CatchesAndLogs() throws Exception {
     // Arrange
     OrderStatusChangeContract contract = new OrderStatusChangeContract();
     contract.setOrderId(orderId);
@@ -306,8 +344,10 @@ class OrderEventSubscriberTest {
         .when(notificationService).createAndSendNotification(
             any(), any(), anyString(), any(), any(), any(), any());
 
+    Message message = createMessage(contract, "order.created");
+
     // Act - should not throw
-    orderEventSubscriber.handleOrderStatusChange(contract, "order.created");
+    orderEventSubscriber.handleRawMessage(message);
 
     // Assert
     verify(notificationService).createAndSendNotification(
@@ -315,25 +355,36 @@ class OrderEventSubscriberTest {
   }
 
   @Test
-  void handleOrderAssigned_PartialFailure_ContinuesProcessing() {
+  void handleRawMessage_InvalidJson_LogsErrorDoesNotThrow() {
     // Arrange
-    OrderAssignedContract contract = new OrderAssignedContract();
-    contract.setOrderId(orderId);
-    contract.setStoreId(storeId);
-    contract.setCourierId(courierId);
-    contract.setUserId(userId);
-
-    // First call (courier) succeeds, second call (customer) fails
-    doNothing()
-        .doThrow(new RuntimeException("Customer notification failed"))
-        .when(notificationService).createAndSendNotification(
-            any(), any(), anyString(), any(), any(), any(), any());
+    MessageProperties props = new MessageProperties();
+    props.setReceivedRoutingKey("order.created");
+    Message message = new Message("invalid json".getBytes(StandardCharsets.UTF_8), props);
 
     // Act - should not throw
-    orderEventSubscriber.handleOrderAssigned(contract);
+    orderEventSubscriber.handleRawMessage(message);
 
-    // Assert - both notifications attempted
-    verify(notificationService, times(2)).createAndSendNotification(
+    // Assert
+    verify(notificationService, never()).createAndSendNotification(
+        any(), any(), anyString(), any(), any(), any(), any());
+  }
+
+  @Test
+  void handleRawMessage_NullRoutingKey_LogsWarning() throws Exception {
+    // Arrange
+    OrderStatusChangeContract contract = new OrderStatusChangeContract();
+    contract.setOrderId(orderId);
+
+    String json = objectMapper.writeValueAsString(contract);
+    MessageProperties props = new MessageProperties();
+    props.setReceivedRoutingKey(null);
+    Message message = new Message(json.getBytes(StandardCharsets.UTF_8), props);
+
+    // Act - should not throw
+    orderEventSubscriber.handleRawMessage(message);
+
+    // Assert
+    verify(notificationService, never()).createAndSendNotification(
         any(), any(), anyString(), any(), any(), any(), any());
   }
 }
