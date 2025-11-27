@@ -1,6 +1,5 @@
 package com.yads.storeservice.job;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yads.storeservice.model.OutboxEvent;
 import com.yads.storeservice.repository.OutboxRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -12,6 +11,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import java.time.LocalDateTime;
@@ -32,24 +32,22 @@ class OutboxPublisherTest {
         private OutboxRepository outboxRepository;
         @Mock
         private RabbitTemplate rabbitTemplate;
-        @Mock
-        private ObjectMapper objectMapper;
 
         @InjectMocks
         private OutboxPublisher outboxPublisher;
 
-        private OutboxEvent event1;
-        private OutboxEvent event2;
-        private UUID eventId1;
-        private UUID eventId2;
+        private OutboxEvent orderEvent;
+        private OutboxEvent productEvent;
+        private UUID orderEventId;
+        private UUID productEventId;
 
         @BeforeEach
         void setUp() {
-                eventId1 = UUID.randomUUID();
-                eventId2 = UUID.randomUUID();
+                orderEventId = UUID.randomUUID();
+                productEventId = UUID.randomUUID();
 
-                event1 = OutboxEvent.builder()
-                                .id(eventId1)
+                orderEvent = OutboxEvent.builder()
+                                .id(orderEventId)
                                 .aggregateType("ORDER")
                                 .aggregateId("order-123")
                                 .type("order.stock_reserved")
@@ -58,8 +56,8 @@ class OutboxPublisherTest {
                                 .processed(false)
                                 .build();
 
-                event2 = OutboxEvent.builder()
-                                .id(eventId2)
+                productEvent = OutboxEvent.builder()
+                                .id(productEventId)
                                 .aggregateType("PRODUCT")
                                 .aggregateId("product-789")
                                 .type("product.created")
@@ -78,7 +76,7 @@ class OutboxPublisherTest {
                 void shouldFetchTop50UnprocessedEventsOrderedByCreatedAt() {
                         // Arrange
                         when(outboxRepository.findTop50ByProcessedFalseOrderByCreatedAtAsc())
-                                        .thenReturn(List.of(event1, event2));
+                                        .thenReturn(List.of(orderEvent, productEvent));
 
                         // Act
                         outboxPublisher.publishOutboxEvents();
@@ -99,28 +97,22 @@ class OutboxPublisherTest {
 
                         // Assert
                         verify(outboxRepository).findTop50ByProcessedFalseOrderByCreatedAtAsc();
-                        verify(rabbitTemplate, never()).convertAndSend(any(String.class), any(String.class),
-                                        any(Object.class));
+                        verify(rabbitTemplate, never()).send(any(String.class), any(String.class), any(Message.class));
                         verify(outboxRepository, never()).save(any());
                 }
 
                 @Test
                 @DisplayName("should publish all events in batch")
-                void shouldPublishAllEventsInBatch() throws Exception {
+                void shouldPublishAllEventsInBatch() {
                         // Arrange
                         when(outboxRepository.findTop50ByProcessedFalseOrderByCreatedAtAsc())
-                                        .thenReturn(List.of(event1, event2));
-                        when(objectMapper.readValue(anyString(), eq(Object.class)))
-                                        .thenReturn(new Object());
+                                        .thenReturn(List.of(orderEvent, productEvent));
 
                         // Act
                         outboxPublisher.publishOutboxEvents();
 
                         // Assert
-                        verify(rabbitTemplate, times(2)).convertAndSend(
-                                        eq("order_events_exchange"),
-                                        anyString(),
-                                        any(Object.class));
+                        verify(rabbitTemplate, times(2)).send(anyString(), anyString(), any(Message.class));
                 }
         }
 
@@ -129,54 +121,149 @@ class OutboxPublisherTest {
         class EventPublishingTests {
 
                 @Test
-                @DisplayName("should deserialize payload using ObjectMapper")
-                void shouldDeserializePayloadUsingObjectMapper() throws Exception {
+                @DisplayName("should send raw JSON payload as message body")
+                void shouldSendRawJsonPayloadAsMessageBody() {
                         // Arrange
                         when(outboxRepository.findTop50ByProcessedFalseOrderByCreatedAtAsc())
-                                        .thenReturn(List.of(event1));
-                        Object payloadObj = new Object();
-                        when(objectMapper.readValue(event1.getPayload(), Object.class))
-                                        .thenReturn(payloadObj);
+                                        .thenReturn(List.of(orderEvent));
+
+                        ArgumentCaptor<Message> messageCaptor = ArgumentCaptor.forClass(Message.class);
 
                         // Act
                         outboxPublisher.publishOutboxEvents();
 
                         // Assert
-                        verify(objectMapper).readValue(event1.getPayload(), Object.class);
-                        verify(rabbitTemplate).convertAndSend(
-                                        eq("order_events_exchange"),
-                                        eq(event1.getType()),
-                                        eq(payloadObj));
+                        verify(rabbitTemplate).send(anyString(), anyString(), messageCaptor.capture());
+                        Message capturedMessage = messageCaptor.getValue();
+                        String body = new String(capturedMessage.getBody());
+                        assertThat(body).isEqualTo(orderEvent.getPayload());
                 }
 
                 @Test
-                @DisplayName("should publish to correct exchange with event type as routing key")
-                void shouldPublishToCorrectExchangeWithEventTypeAsRoutingKey() throws Exception {
+                @DisplayName("should publish order events to order_events_exchange")
+                void shouldPublishOrderEventsToOrderEventsExchange() {
                         // Arrange
                         when(outboxRepository.findTop50ByProcessedFalseOrderByCreatedAtAsc())
-                                        .thenReturn(List.of(event1));
-                        Object payloadObj = new Object();
-                        when(objectMapper.readValue(anyString(), eq(Object.class)))
-                                        .thenReturn(payloadObj);
+                                        .thenReturn(List.of(orderEvent));
 
                         // Act
                         outboxPublisher.publishOutboxEvents();
 
                         // Assert
-                        verify(rabbitTemplate).convertAndSend(
-                                        "order_events_exchange",
-                                        "order.stock_reserved",
-                                        payloadObj);
+                        verify(rabbitTemplate).send(
+                                        eq("order_events_exchange"),
+                                        eq("order.stock_reserved"),
+                                        any(Message.class));
+                }
+
+                @Test
+                @DisplayName("should publish product events to store_events_exchange")
+                void shouldPublishProductEventsToStoreEventsExchange() {
+                        // Arrange
+                        when(outboxRepository.findTop50ByProcessedFalseOrderByCreatedAtAsc())
+                                        .thenReturn(List.of(productEvent));
+
+                        // Act
+                        outboxPublisher.publishOutboxEvents();
+
+                        // Assert
+                        verify(rabbitTemplate).send(
+                                        eq("store_events_exchange"),
+                                        eq("product.created"),
+                                        any(Message.class));
+                }
+
+                @Test
+                @DisplayName("should set __TypeId__ header for product events")
+                void shouldSetTypeIdHeaderForProductEvents() {
+                        // Arrange
+                        when(outboxRepository.findTop50ByProcessedFalseOrderByCreatedAtAsc())
+                                        .thenReturn(List.of(productEvent));
+
+                        ArgumentCaptor<Message> messageCaptor = ArgumentCaptor.forClass(Message.class);
+
+                        // Act
+                        outboxPublisher.publishOutboxEvents();
+
+                        // Assert
+                        verify(rabbitTemplate).send(anyString(), anyString(), messageCaptor.capture());
+                        Message capturedMessage = messageCaptor.getValue();
+                        assertThat((String) capturedMessage.getMessageProperties().getHeader("__TypeId__"))
+                                        .isEqualTo("com.yads.common.contracts.ProductEventDto");
+                }
+
+                @Test
+                @DisplayName("should set __TypeId__ header as UUID for product.deleted events")
+                void shouldSetTypeIdHeaderAsUuidForProductDeletedEvents() {
+                        // Arrange
+                        OutboxEvent deleteEvent = OutboxEvent.builder()
+                                        .id(UUID.randomUUID())
+                                        .aggregateType("PRODUCT")
+                                        .aggregateId("product-123")
+                                        .type("product.deleted")
+                                        .payload("\"550e8400-e29b-41d4-a716-446655440000\"")
+                                        .createdAt(LocalDateTime.now())
+                                        .processed(false)
+                                        .build();
+
+                        when(outboxRepository.findTop50ByProcessedFalseOrderByCreatedAtAsc())
+                                        .thenReturn(List.of(deleteEvent));
+
+                        ArgumentCaptor<Message> messageCaptor = ArgumentCaptor.forClass(Message.class);
+
+                        // Act
+                        outboxPublisher.publishOutboxEvents();
+
+                        // Assert
+                        verify(rabbitTemplate).send(anyString(), anyString(), messageCaptor.capture());
+                        Message capturedMessage = messageCaptor.getValue();
+                        assertThat((String) capturedMessage.getMessageProperties().getHeader("__TypeId__"))
+                                        .isEqualTo("java.util.UUID");
+                }
+
+                @Test
+                @DisplayName("should not set __TypeId__ header for order events")
+                void shouldNotSetTypeIdHeaderForOrderEvents() {
+                        // Arrange
+                        when(outboxRepository.findTop50ByProcessedFalseOrderByCreatedAtAsc())
+                                        .thenReturn(List.of(orderEvent));
+
+                        ArgumentCaptor<Message> messageCaptor = ArgumentCaptor.forClass(Message.class);
+
+                        // Act
+                        outboxPublisher.publishOutboxEvents();
+
+                        // Assert
+                        verify(rabbitTemplate).send(anyString(), anyString(), messageCaptor.capture());
+                        Message capturedMessage = messageCaptor.getValue();
+                        assertThat((String) capturedMessage.getMessageProperties().getHeader("__TypeId__")).isNull();
+                }
+
+                @Test
+                @DisplayName("should set content type as application/json")
+                void shouldSetContentTypeAsApplicationJson() {
+                        // Arrange
+                        when(outboxRepository.findTop50ByProcessedFalseOrderByCreatedAtAsc())
+                                        .thenReturn(List.of(orderEvent));
+
+                        ArgumentCaptor<Message> messageCaptor = ArgumentCaptor.forClass(Message.class);
+
+                        // Act
+                        outboxPublisher.publishOutboxEvents();
+
+                        // Assert
+                        verify(rabbitTemplate).send(anyString(), anyString(), messageCaptor.capture());
+                        Message capturedMessage = messageCaptor.getValue();
+                        assertThat(capturedMessage.getMessageProperties().getContentType())
+                                        .isEqualTo("application/json");
                 }
 
                 @Test
                 @DisplayName("should mark event as processed after successful publish")
-                void shouldMarkEventAsProcessedAfterSuccessfulPublish() throws Exception {
+                void shouldMarkEventAsProcessedAfterSuccessfulPublish() {
                         // Arrange
                         when(outboxRepository.findTop50ByProcessedFalseOrderByCreatedAtAsc())
-                                        .thenReturn(List.of(event1));
-                        when(objectMapper.readValue(anyString(), eq(Object.class)))
-                                        .thenReturn(new Object());
+                                        .thenReturn(List.of(orderEvent));
 
                         ArgumentCaptor<OutboxEvent> eventCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
 
@@ -186,7 +273,7 @@ class OutboxPublisherTest {
                         // Assert
                         verify(outboxRepository).save(eventCaptor.capture());
                         OutboxEvent savedEvent = eventCaptor.getValue();
-                        assertThat(savedEvent.getId()).isEqualTo(eventId1);
+                        assertThat(savedEvent.getId()).isEqualTo(orderEventId);
                         assertThat(savedEvent.isProcessed()).isTrue();
                 }
         }
@@ -197,68 +284,41 @@ class OutboxPublisherTest {
 
                 @Test
                 @DisplayName("should continue processing remaining events when one fails")
-                void shouldContinueProcessingRemainingEventsWhenOneFails() throws Exception {
+                void shouldContinueProcessingRemainingEventsWhenOneFails() {
                         // Arrange
                         when(outboxRepository.findTop50ByProcessedFalseOrderByCreatedAtAsc())
-                                        .thenReturn(List.of(event1, event2));
+                                        .thenReturn(List.of(orderEvent, productEvent));
 
-                        // First event fails to deserialize
-                        when(objectMapper.readValue(event1.getPayload(), Object.class))
-                                        .thenThrow(new RuntimeException("JSON parse error"));
-
-                        // Second event succeeds
-                        when(objectMapper.readValue(event2.getPayload(), Object.class))
-                                        .thenReturn(new Object());
+                        // First event fails
+                        doThrow(new RuntimeException("RabbitMQ error"))
+                                        .doNothing()
+                                        .when(rabbitTemplate).send(anyString(), anyString(), any(Message.class));
 
                         // Act
                         outboxPublisher.publishOutboxEvents();
 
                         // Assert - second event should still be published
-                        verify(rabbitTemplate).convertAndSend(
-                                        eq("order_events_exchange"),
-                                        eq("product.created"),
-                                        any(Object.class));
+                        verify(rabbitTemplate, times(2)).send(anyString(), anyString(), any(Message.class));
 
                         // Only second event should be marked as processed
                         ArgumentCaptor<OutboxEvent> eventCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
                         verify(outboxRepository).save(eventCaptor.capture());
-                        assertThat(eventCaptor.getValue().getId()).isEqualTo(eventId2);
+                        assertThat(eventCaptor.getValue().getId()).isEqualTo(productEventId);
                 }
 
                 @Test
                 @DisplayName("should not mark event as processed when publishing fails")
-                void shouldNotMarkEventAsProcessedWhenPublishingFails() throws Exception {
+                void shouldNotMarkEventAsProcessedWhenPublishingFails() {
                         // Arrange
                         when(outboxRepository.findTop50ByProcessedFalseOrderByCreatedAtAsc())
-                                        .thenReturn(List.of(event1));
-                        when(objectMapper.readValue(anyString(), eq(Object.class)))
-                                        .thenReturn(new Object());
+                                        .thenReturn(List.of(orderEvent));
                         doThrow(new RuntimeException("RabbitMQ connection failed"))
-                                        .when(rabbitTemplate)
-                                        .convertAndSend(any(String.class), any(String.class), any(Object.class));
+                                        .when(rabbitTemplate).send(anyString(), anyString(), any(Message.class));
 
                         // Act
                         outboxPublisher.publishOutboxEvents();
 
                         // Assert - should not save the event
-                        verify(outboxRepository, never()).save(any());
-                }
-
-                @Test
-                @DisplayName("should not mark event as processed when JSON parsing fails")
-                void shouldNotMarkEventAsProcessedWhenJsonParsingFails() throws Exception {
-                        // Arrange
-                        when(outboxRepository.findTop50ByProcessedFalseOrderByCreatedAtAsc())
-                                        .thenReturn(List.of(event1));
-                        when(objectMapper.readValue(anyString(), eq(Object.class)))
-                                        .thenThrow(new RuntimeException("Invalid JSON"));
-
-                        // Act
-                        outboxPublisher.publishOutboxEvents();
-
-                        // Assert
-                        verify(rabbitTemplate, never()).convertAndSend(any(String.class), any(String.class),
-                                        any(Object.class));
                         verify(outboxRepository, never()).save(any());
                 }
         }
@@ -368,47 +428,62 @@ class OutboxPublisherTest {
 
                 @Test
                 @DisplayName("should handle mixed batch with successes and failures")
-                void shouldHandleMixedBatchWithSuccessesAndFailures() throws Exception {
+                void shouldHandleMixedBatchWithSuccessesAndFailures() {
                         // Arrange
                         UUID eventId3 = UUID.randomUUID();
                         OutboxEvent event3 = OutboxEvent.builder()
                                         .id(eventId3)
+                                        .aggregateType("PRODUCT")
+                                        .aggregateId("product-999")
                                         .type("product.updated")
                                         .payload("{\"productId\":\"product-999\"}")
+                                        .createdAt(LocalDateTime.now())
                                         .processed(false)
                                         .build();
 
                         when(outboxRepository.findTop50ByProcessedFalseOrderByCreatedAtAsc())
-                                        .thenReturn(List.of(event1, event2, event3));
+                                        .thenReturn(List.of(orderEvent, productEvent, event3));
 
-                        // event1 succeeds
-                        when(objectMapper.readValue(event1.getPayload(), Object.class))
-                                        .thenReturn(new Object());
-
-                        // event2 fails JSON parsing
-                        when(objectMapper.readValue(event2.getPayload(), Object.class))
-                                        .thenThrow(new RuntimeException("Parse error"));
-
-                        // event3 succeeds
-                        when(objectMapper.readValue(event3.getPayload(), Object.class))
-                                        .thenReturn(new Object());
+                        // productEvent (second) fails
+                        doNothing()
+                                        .doThrow(new RuntimeException("RabbitMQ error"))
+                                        .doNothing()
+                                        .when(rabbitTemplate).send(anyString(), anyString(), any(Message.class));
 
                         ArgumentCaptor<OutboxEvent> eventCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
 
                         // Act
                         outboxPublisher.publishOutboxEvents();
 
-                        // Assert
-                        verify(rabbitTemplate, times(2)).convertAndSend(
-                                        eq("order_events_exchange"),
-                                        anyString(),
-                                        any(Object.class));
+                        // Assert - all 3 attempts should be made
+                        verify(rabbitTemplate, times(3)).send(anyString(), anyString(), any(Message.class));
 
-                        // Verify event1 and event3 marked as processed, not event2
+                        // Verify orderEvent and event3 marked as processed, not productEvent
                         verify(outboxRepository, times(2)).save(eventCaptor.capture());
                         List<OutboxEvent> savedEvents = eventCaptor.getAllValues();
                         assertThat(savedEvents).extracting(OutboxEvent::getId)
-                                        .containsExactlyInAnyOrder(eventId1, eventId3);
+                                        .containsExactlyInAnyOrder(orderEventId, eventId3);
+                }
+
+                @Test
+                @DisplayName("should route events to correct exchanges based on event type")
+                void shouldRouteEventsToCorrectExchangesBasedOnEventType() {
+                        // Arrange
+                        when(outboxRepository.findTop50ByProcessedFalseOrderByCreatedAtAsc())
+                                        .thenReturn(List.of(orderEvent, productEvent));
+
+                        // Act
+                        outboxPublisher.publishOutboxEvents();
+
+                        // Assert
+                        verify(rabbitTemplate).send(
+                                        eq("order_events_exchange"),
+                                        eq("order.stock_reserved"),
+                                        any(Message.class));
+                        verify(rabbitTemplate).send(
+                                        eq("store_events_exchange"),
+                                        eq("product.created"),
+                                        any(Message.class));
                 }
         }
 

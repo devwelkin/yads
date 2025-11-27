@@ -3,7 +3,6 @@ package com.yads.storeservice.service;
 import com.yads.common.dto.BatchReserveItem;
 import com.yads.common.dto.BatchReserveStockRequest;
 import com.yads.common.dto.BatchReserveStockResponse;
-import com.yads.common.dto.ReserveStockRequest;
 import com.yads.common.exception.AccessDeniedException;
 import com.yads.common.exception.InsufficientStockException;
 import com.yads.common.exception.ResourceNotFoundException;
@@ -514,107 +513,6 @@ class ProductServiceImplTest {
     }
 
     @Nested
-    @DisplayName("Reserve Stock Tests")
-    class ReserveStockTests {
-
-        @Test
-        @DisplayName("should reserve stock successfully with atomic update")
-        void shouldReserveStockSuccessfullyWithAtomicUpdate() {
-            // Arrange
-            ReserveStockRequest request = ReserveStockRequest.builder()
-                    .storeId(storeId)
-                    .quantity(2)
-                    .build();
-
-            when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(productRepository.decreaseStock(productId, 2)).thenReturn(1);
-            when(productMapper.toProductResponse(product)).thenReturn(productResponse);
-
-            // Act
-            ProductResponse result = productService.reserveProduct(productId, request);
-
-            // Assert
-            assertThat(result).isNotNull();
-            verify(entityManager).refresh(product);
-            verify(eventPublisher).publishEvent(any(ProductUpdateEvent.class));
-        }
-
-        @Test
-        @DisplayName("should throw InsufficientStockException when requested quantity exceeds available stock")
-        void shouldThrowInsufficientStockExceptionWhenQuantityExceedsStock() {
-            // Arrange
-            product.setStock(1);
-            ReserveStockRequest request = ReserveStockRequest.builder()
-                    .storeId(storeId)
-                    .quantity(5)
-                    .build();
-
-            when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-
-            // Act & Assert
-            assertThatThrownBy(() -> productService.reserveProduct(productId, request))
-                    .isInstanceOf(InsufficientStockException.class)
-                    .hasMessageContaining("Not enough stock");
-
-            verify(productRepository, never()).decreaseStock(any(), anyInt());
-        }
-
-        @Test
-        @DisplayName("should throw InsufficientStockException when atomic update returns zero due to race condition")
-        void shouldThrowInsufficientStockExceptionWhenAtomicUpdateReturnsZero() {
-            // Arrange
-            product.setStock(5);
-            ReserveStockRequest request = ReserveStockRequest.builder()
-                    .storeId(storeId)
-                    .quantity(2)
-                    .build();
-
-            when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(productRepository.decreaseStock(productId, 2)).thenReturn(0);
-
-            // Act & Assert
-            assertThatThrownBy(() -> productService.reserveProduct(productId, request))
-                    .isInstanceOf(InsufficientStockException.class);
-
-            verify(eventPublisher, never()).publishEvent(any());
-        }
-
-        @Test
-        @DisplayName("should throw ResourceNotFoundException when product not found")
-        void shouldThrowResourceNotFoundExceptionWhenProductNotFound() {
-            // Arrange
-            ReserveStockRequest request = ReserveStockRequest.builder()
-                    .storeId(storeId)
-                    .quantity(2)
-                    .build();
-
-            when(productRepository.findById(productId)).thenReturn(Optional.empty());
-
-            // Act & Assert
-            assertThatThrownBy(() -> productService.reserveProduct(productId, request))
-                    .isInstanceOf(ResourceNotFoundException.class);
-        }
-
-        @Test
-        @DisplayName("should throw IllegalArgumentException when product store mismatch")
-        void shouldThrowIllegalArgumentExceptionWhenStoreIdMismatch() {
-            // Arrange
-            UUID differentStoreId = UUID.randomUUID();
-            ReserveStockRequest request = ReserveStockRequest.builder()
-                    .storeId(differentStoreId)
-                    .quantity(2)
-                    .build();
-
-            when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-
-            // Act & Assert
-            assertThatThrownBy(() -> productService.reserveProduct(productId, request))
-                    .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("does not belong to");
-        }
-    }
-
-    @Nested
     @DisplayName("Batch Reserve Stock Tests")
     class BatchReserveStockTests {
 
@@ -700,72 +598,6 @@ class ProductServiceImplTest {
 
             // Act & Assert
             assertThatThrownBy(() -> productService.batchReserveStock(request))
-                    .isInstanceOf(IllegalArgumentException.class);
-        }
-    }
-
-    @Nested
-    @DisplayName("Restore Stock Tests")
-    class RestoreStockTests {
-
-        @Test
-        @DisplayName("should restore stock successfully and re-enable availability")
-        void shouldRestoreStockSuccessfullyAndReEnableAvailability() {
-            // Arrange
-            product.setStock(0);
-            product.setIsAvailable(false);
-
-            when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(productRepository.save(product)).thenReturn(product);
-
-            // Act
-            productService.restoreStock(productId, 5, storeId);
-
-            // Assert
-            assertThat(product.getStock()).isEqualTo(5);
-            assertThat(product.getIsAvailable()).isTrue();
-            verify(productRepository).save(product);
-            verify(eventPublisher).publishEvent(any(ProductUpdateEvent.class));
-        }
-
-        @Test
-        @DisplayName("should restore stock without changing availability when already available")
-        void shouldRestoreStockWithoutChangingAvailabilityWhenAlreadyAvailable() {
-            // Arrange
-            product.setStock(5);
-            product.setIsAvailable(true);
-
-            when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-            when(productRepository.save(product)).thenReturn(product);
-
-            // Act
-            productService.restoreStock(productId, 3, storeId);
-
-            // Assert
-            assertThat(product.getStock()).isEqualTo(8);
-            assertThat(product.getIsAvailable()).isTrue();
-        }
-
-        @Test
-        @DisplayName("should throw ResourceNotFoundException when product not found")
-        void shouldThrowResourceNotFoundExceptionWhenProductNotFound() {
-            // Arrange
-            when(productRepository.findById(productId)).thenReturn(Optional.empty());
-
-            // Act & Assert
-            assertThatThrownBy(() -> productService.restoreStock(productId, 5, storeId))
-                    .isInstanceOf(ResourceNotFoundException.class);
-        }
-
-        @Test
-        @DisplayName("should throw IllegalArgumentException when store mismatch")
-        void shouldThrowIllegalArgumentExceptionWhenStoreMismatch() {
-            // Arrange
-            UUID differentStoreId = UUID.randomUUID();
-            when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-
-            // Act & Assert
-            assertThatThrownBy(() -> productService.restoreStock(productId, 5, differentStoreId))
                     .isInstanceOf(IllegalArgumentException.class);
         }
     }

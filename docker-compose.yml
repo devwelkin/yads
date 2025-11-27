@@ -25,6 +25,16 @@ services:
     networks:
       - yads-network
 
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: dozzle
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "8888:8080"
+    networks:
+      - yads-network
+
   api-gateway:
     build:
       context: ./api-gateway

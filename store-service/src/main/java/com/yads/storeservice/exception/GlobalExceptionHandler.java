@@ -1,5 +1,6 @@
 package com.yads.storeservice.exception;
 
+import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.yads.common.dto.ErrorResponse;
 import com.yads.common.dto.ValidationErrorResponse;
 import com.yads.common.exception.AccessDeniedException;
@@ -14,12 +15,15 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -197,6 +201,51 @@ public class GlobalExceptionHandler {
                                 .path(request.getRequestURI())
                                 .timestamp(LocalDateTime.now())
                                 .errorCode("INVALID_ARGUMENT")
+                                .correlationId(correlationId)
+                                .build();
+
+                return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
+        }
+
+        /**
+         * Handles HttpMessageNotReadableException (400 - Bad Request)
+         * Thrown when JSON parsing fails (e.g., invalid enum value, malformed JSON)
+         */
+        @ExceptionHandler(HttpMessageNotReadableException.class)
+        public ResponseEntity<ErrorResponse> handleHttpMessageNotReadableException(
+                        HttpMessageNotReadableException ex,
+                        HttpServletRequest request) {
+
+                String correlationId = getTraceId();
+                String message = "Invalid request body";
+
+                // Check if this is an enum parsing error
+                Throwable cause = ex.getCause();
+                if (cause instanceof InvalidFormatException invalidFormatEx) {
+                        Class<?> targetType = invalidFormatEx.getTargetType();
+                        if (targetType != null && targetType.isEnum()) {
+                                Object[] enumConstants = targetType.getEnumConstants();
+                                String validValues = Arrays.stream(enumConstants)
+                                                .map(Object::toString)
+                                                .collect(Collectors.joining(", "));
+                                message = String.format("Invalid value '%s' for field '%s'. Valid values are: [%s]",
+                                                invalidFormatEx.getValue(),
+                                                invalidFormatEx.getPath().get(invalidFormatEx.getPath().size() - 1)
+                                                                .getFieldName(),
+                                                validValues);
+                        }
+                }
+
+                log.debug("[{}] Message not readable - Path: {} - Error: {}", correlationId, request.getRequestURI(),
+                                ex.getMessage());
+
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .status(HttpStatus.BAD_REQUEST.value())
+                                .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
+                                .message(message)
+                                .path(request.getRequestURI())
+                                .timestamp(LocalDateTime.now())
+                                .errorCode("INVALID_REQUEST_BODY")
                                 .correlationId(correlationId)
                                 .build();
 
