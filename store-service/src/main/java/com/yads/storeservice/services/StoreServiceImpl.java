@@ -13,14 +13,17 @@ import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-public class StoreServiceImpl implements StoreService{
+public class StoreServiceImpl implements StoreService {
 
     private static final Logger log = LoggerFactory.getLogger(StoreServiceImpl.class);
 
@@ -29,7 +32,16 @@ public class StoreServiceImpl implements StoreService{
 
     @Override
     @Transactional
-    public StoreResponse createStore(StoreRequest request, UUID ownerId) {
+    public StoreResponse createStore(StoreRequest request, Jwt jwt) {
+        UUID ownerId = UUID.fromString(jwt.getSubject());
+
+        // Only STORE_OWNER role can create stores
+        List<String> roles = extractClientRoles(jwt);
+        if (!roles.contains("STORE_OWNER")) {
+            log.warn("Access denied: User {} attempted to create store without STORE_OWNER role", ownerId);
+            throw new AccessDeniedException("Access Denied: Only approved store owners can create stores");
+        }
+
         // Check if a store with the same name already exists
         if (storeRepository.existsByName(request.getName())) {
             log.warn("Duplicate store creation attempt: name='{}', owner={}", request.getName(), ownerId);
@@ -87,7 +99,16 @@ public class StoreServiceImpl implements StoreService{
 
     @Override
     @Transactional
-    public StoreResponse updateStore(UUID storeId, StoreRequest request, UUID ownerId) {
+    public StoreResponse updateStore(UUID storeId, StoreRequest request, Jwt jwt) {
+        UUID ownerId = UUID.fromString(jwt.getSubject());
+
+        // Only STORE_OWNER role can update stores
+        List<String> roles = extractClientRoles(jwt);
+        if (!roles.contains("STORE_OWNER")) {
+            log.warn("Access denied: User {} attempted to update store {} without STORE_OWNER role", ownerId, storeId);
+            throw new AccessDeniedException("Access Denied: Only store owners can update stores");
+        }
+
         Store store = storeRepository.findById(storeId)
                 .orElseThrow(() -> new ResourceNotFoundException("Store not found"));
         if (!store.getOwnerId().equals(ownerId)) {
@@ -115,7 +136,16 @@ public class StoreServiceImpl implements StoreService{
 
     @Override
     @Transactional
-    public void deleteStore(UUID storeId, UUID ownerId) {
+    public void deleteStore(UUID storeId, Jwt jwt) {
+        UUID ownerId = UUID.fromString(jwt.getSubject());
+
+        // Only STORE_OWNER role can delete stores
+        List<String> roles = extractClientRoles(jwt);
+        if (!roles.contains("STORE_OWNER")) {
+            log.warn("Access denied: User {} attempted to delete store {} without STORE_OWNER role", ownerId, storeId);
+            throw new AccessDeniedException("Access Denied: Only store owners can delete stores");
+        }
+
         Store store = storeRepository.findById(storeId)
                 .orElseThrow(() -> new ResourceNotFoundException("Store not found"));
         if (!store.getOwnerId().equals(ownerId)) {
@@ -130,4 +160,24 @@ public class StoreServiceImpl implements StoreService{
         log.info("Store deleted: id={}, name='{}', owner={}", storeId, storeName, ownerId);
     }
 
+    /**
+     * Extracts client roles from JWT token.
+     * Keycloak stores roles under: resource_access.yads-backend.roles
+     */
+    private List<String> extractClientRoles(Jwt jwt) {
+        return Optional.ofNullable(jwt.getClaim("resource_access"))
+                .filter(Map.class::isInstance)
+                .map(claim -> (Map<?, ?>) claim)
+                .map(accessMap -> accessMap.get("yads-backend"))
+                .filter(Map.class::isInstance)
+                .map(backend -> (Map<?, ?>) backend)
+                .map(backendMap -> backendMap.get("roles"))
+                .filter(List.class::isInstance)
+                .map(roles -> (List<?>) roles)
+                .map(list -> list.stream()
+                        .filter(String.class::isInstance)
+                        .map(String.class::cast)
+                        .toList())
+                .orElse(List.of());
+    }
 }

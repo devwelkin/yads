@@ -18,9 +18,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.oauth2.jwt.Jwt;
 
+import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -46,6 +49,8 @@ class StoreServiceImplTest {
   private Store store;
   private StoreRequest storeRequest;
   private StoreResponse storeResponse;
+  private Jwt storeOwnerJwt;
+  private Jwt customerJwt;
 
   @BeforeEach
   void setUp() {
@@ -70,6 +75,25 @@ class StoreServiceImplTest {
         .storeType("RESTAURANT")
         .isActive(true)
         .build();
+
+    // Create JWT with STORE_OWNER role
+    storeOwnerJwt = createJwtWithRoles(ownerId, List.of("STORE_OWNER"));
+
+    // Create JWT without STORE_OWNER role (regular customer)
+    customerJwt = createJwtWithRoles(UUID.randomUUID(), List.of("CUSTOMER"));
+  }
+
+  private Jwt createJwtWithRoles(UUID userId, List<String> roles) {
+    Map<String, Object> resourceAccess = Map.of(
+        "yads-backend", Map.of("roles", roles));
+
+    return Jwt.withTokenValue("test-token")
+        .header("alg", "RS256")
+        .subject(userId.toString())
+        .claim("resource_access", resourceAccess)
+        .issuedAt(Instant.now())
+        .expiresAt(Instant.now().plusSeconds(3600))
+        .build();
   }
 
   @Nested
@@ -77,7 +101,7 @@ class StoreServiceImplTest {
   class CreateStoreTests {
 
     @Test
-    @DisplayName("should create store successfully when name is unique")
+    @DisplayName("should create store successfully when user has STORE_OWNER role")
     void shouldCreateStoreSuccessfully() {
       // Arrange
       when(storeRepository.existsByName(storeRequest.getName())).thenReturn(false);
@@ -86,12 +110,23 @@ class StoreServiceImplTest {
       when(storeMapper.toStoreResponse(store)).thenReturn(storeResponse);
 
       // Act
-      StoreResponse result = storeService.createStore(storeRequest, ownerId);
+      StoreResponse result = storeService.createStore(storeRequest, storeOwnerJwt);
 
       // Assert
       assertThat(result).isNotNull();
       assertThat(result.getId()).isEqualTo(storeId);
       verify(storeRepository).save(argThat(s -> s.getOwnerId().equals(ownerId) && s.getIsActive()));
+    }
+
+    @Test
+    @DisplayName("should throw AccessDeniedException when user does not have STORE_OWNER role")
+    void shouldThrowAccessDeniedExceptionWhenNotStoreOwner() {
+      // Act & Assert
+      assertThatThrownBy(() -> storeService.createStore(storeRequest, customerJwt))
+          .isInstanceOf(AccessDeniedException.class)
+          .hasMessageContaining("Only approved store owners");
+
+      verify(storeRepository, never()).save(any());
     }
 
     @Test
@@ -101,7 +136,7 @@ class StoreServiceImplTest {
       when(storeRepository.existsByName(storeRequest.getName())).thenReturn(true);
 
       // Act & Assert
-      assertThatThrownBy(() -> storeService.createStore(storeRequest, ownerId))
+      assertThatThrownBy(() -> storeService.createStore(storeRequest, storeOwnerJwt))
           .isInstanceOf(DuplicateResourceException.class)
           .hasMessageContaining("already exists");
 
@@ -118,7 +153,7 @@ class StoreServiceImplTest {
       when(storeMapper.toStoreResponse(store)).thenReturn(storeResponse);
 
       // Act
-      storeService.createStore(storeRequest, ownerId);
+      storeService.createStore(storeRequest, storeOwnerJwt);
 
       // Assert
       verify(storeRepository).save(argThat(s -> s.getOwnerId().equals(ownerId) &&
@@ -287,7 +322,7 @@ class StoreServiceImplTest {
       when(storeMapper.toStoreResponse(store)).thenReturn(storeResponse);
 
       // Act
-      StoreResponse result = storeService.updateStore(storeId, storeRequest, ownerId);
+      StoreResponse result = storeService.updateStore(storeId, storeRequest, storeOwnerJwt);
 
       // Assert
       assertThat(result).isNotNull();
@@ -296,14 +331,26 @@ class StoreServiceImplTest {
     }
 
     @Test
+    @DisplayName("should throw AccessDeniedException when user does not have STORE_OWNER role")
+    void shouldThrowAccessDeniedExceptionWhenNotStoreOwner() {
+      // Act & Assert
+      assertThatThrownBy(() -> storeService.updateStore(storeId, storeRequest, customerJwt))
+          .isInstanceOf(AccessDeniedException.class)
+          .hasMessageContaining("Only store owners");
+
+      verify(storeRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("should throw AccessDeniedException when owner is different")
     void shouldThrowAccessDeniedExceptionWhenOwnerIsDifferent() {
       // Arrange
       UUID differentOwnerId = UUID.randomUUID();
+      Jwt differentOwnerJwt = createJwtWithRoles(differentOwnerId, List.of("STORE_OWNER"));
       when(storeRepository.findById(storeId)).thenReturn(Optional.of(store));
 
       // Act & Assert
-      assertThatThrownBy(() -> storeService.updateStore(storeId, storeRequest, differentOwnerId))
+      assertThatThrownBy(() -> storeService.updateStore(storeId, storeRequest, differentOwnerJwt))
           .isInstanceOf(AccessDeniedException.class)
           .hasMessageContaining("not authorized");
 
@@ -317,7 +364,7 @@ class StoreServiceImplTest {
       when(storeRepository.findById(storeId)).thenReturn(Optional.empty());
 
       // Act & Assert
-      assertThatThrownBy(() -> storeService.updateStore(storeId, storeRequest, ownerId))
+      assertThatThrownBy(() -> storeService.updateStore(storeId, storeRequest, storeOwnerJwt))
           .isInstanceOf(ResourceNotFoundException.class);
     }
 
@@ -332,7 +379,7 @@ class StoreServiceImplTest {
       when(storeRepository.existsByName("Different Name")).thenReturn(true);
 
       // Act & Assert
-      assertThatThrownBy(() -> storeService.updateStore(storeId, newNameRequest, ownerId))
+      assertThatThrownBy(() -> storeService.updateStore(storeId, newNameRequest, storeOwnerJwt))
           .isInstanceOf(DuplicateResourceException.class)
           .hasMessageContaining("already exists");
 
@@ -352,7 +399,7 @@ class StoreServiceImplTest {
       when(storeMapper.toStoreResponse(store)).thenReturn(storeResponse);
 
       // Act
-      StoreResponse result = storeService.updateStore(storeId, sameNameRequest, ownerId);
+      StoreResponse result = storeService.updateStore(storeId, sameNameRequest, storeOwnerJwt);
 
       // Assert
       assertThat(result).isNotNull();
@@ -373,7 +420,7 @@ class StoreServiceImplTest {
       when(storeMapper.toStoreResponse(store)).thenReturn(storeResponse);
 
       // Act
-      StoreResponse result = storeService.updateStore(storeId, nullNameRequest, ownerId);
+      StoreResponse result = storeService.updateStore(storeId, nullNameRequest, storeOwnerJwt);
 
       // Assert
       assertThat(result).isNotNull();
@@ -393,10 +440,21 @@ class StoreServiceImplTest {
       when(storeRepository.findById(storeId)).thenReturn(Optional.of(store));
 
       // Act
-      storeService.deleteStore(storeId, ownerId);
+      storeService.deleteStore(storeId, storeOwnerJwt);
 
       // Assert
       verify(storeRepository).delete(store);
+    }
+
+    @Test
+    @DisplayName("should throw AccessDeniedException when user does not have STORE_OWNER role")
+    void shouldThrowAccessDeniedExceptionWhenNotStoreOwner() {
+      // Act & Assert
+      assertThatThrownBy(() -> storeService.deleteStore(storeId, customerJwt))
+          .isInstanceOf(AccessDeniedException.class)
+          .hasMessageContaining("Only store owners");
+
+      verify(storeRepository, never()).delete(any());
     }
 
     @Test
@@ -404,10 +462,11 @@ class StoreServiceImplTest {
     void shouldThrowAccessDeniedExceptionWhenOwnerIsDifferent() {
       // Arrange
       UUID differentOwnerId = UUID.randomUUID();
+      Jwt differentOwnerJwt = createJwtWithRoles(differentOwnerId, List.of("STORE_OWNER"));
       when(storeRepository.findById(storeId)).thenReturn(Optional.of(store));
 
       // Act & Assert
-      assertThatThrownBy(() -> storeService.deleteStore(storeId, differentOwnerId))
+      assertThatThrownBy(() -> storeService.deleteStore(storeId, differentOwnerJwt))
           .isInstanceOf(AccessDeniedException.class)
           .hasMessageContaining("not authorized");
 
@@ -421,7 +480,7 @@ class StoreServiceImplTest {
       when(storeRepository.findById(storeId)).thenReturn(Optional.empty());
 
       // Act & Assert
-      assertThatThrownBy(() -> storeService.deleteStore(storeId, ownerId))
+      assertThatThrownBy(() -> storeService.deleteStore(storeId, storeOwnerJwt))
           .isInstanceOf(ResourceNotFoundException.class);
 
       verify(storeRepository, never()).delete(any());

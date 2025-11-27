@@ -25,8 +25,7 @@ public class StoreController {
     @PostMapping
     public ResponseEntity<StoreResponse> createStore(@Valid @RequestBody StoreRequest request,
             @AuthenticationPrincipal Jwt jwt) {
-        UUID ownerId = UUID.fromString(jwt.getSubject());
-        StoreResponse createdStore = storeService.createStore(request, ownerId);
+        StoreResponse createdStore = storeService.createStore(request, jwt);
         return ResponseEntity.status(HttpStatus.CREATED).body(createdStore);
     }
 
@@ -56,15 +55,13 @@ public class StoreController {
     @PatchMapping("/{storeId}")
     public ResponseEntity<StoreResponse> updateStore(@PathVariable UUID storeId,
             @Valid @RequestBody StoreRequest request, @AuthenticationPrincipal Jwt jwt) {
-        UUID ownerId = UUID.fromString(jwt.getSubject());
-        StoreResponse updatedStore = storeService.updateStore(storeId, request, ownerId);
+        StoreResponse updatedStore = storeService.updateStore(storeId, request, jwt);
         return ResponseEntity.ok(updatedStore);
     }
 
     @DeleteMapping("/{storeId}")
     public ResponseEntity<Void> deleteStore(@PathVariable UUID storeId, @AuthenticationPrincipal Jwt jwt) {
-        UUID ownerId = UUID.fromString(jwt.getSubject());
-        storeService.deleteStore(storeId, ownerId);
+        storeService.deleteStore(storeId, jwt);
         return ResponseEntity.noContent().build();
     }
 }
