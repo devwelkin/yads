@@ -10,6 +10,7 @@ spring:
     password: guest
     listener:
       simple:
+        observation-enabled: true
         prefetch: 10
         retry:
           enabled: true
@@ -17,6 +18,8 @@ spring:
           initial-interval: 1000ms
           multiplier: 2
           max-interval: 10000ms
+    template:
+      observation-enabled: true
 
   security:
     oauth2:
