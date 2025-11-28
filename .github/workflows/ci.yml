@@ -26,7 +26,7 @@ jobs:
         cache: 'maven'
 
     - name: build service jar
-      run: mvn -B package -pl ${{ matrix.service }} -am -DskipTests
+      run: mvn -B package --file pom.xml -DskipTests
 
     # Login to AWS
     - name: configure aws credentials
