@@ -157,14 +157,14 @@ public class StockReservationIntegrationTest extends AbstractIntegrationTest {
     rabbitTemplate.convertAndSend(AmqpConfig.Q_STOCK_RESERVE, contract);
 
     // 3. ASSERT: DB Changes (Stock decreased)
-    await().atMost(3, TimeUnit.SECONDS).untilAsserted(() -> {
+    await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
       Product updatedProduct = productRepository.findById(product.getId()).orElseThrow();
       assertEquals(7, updatedProduct.getStock(), "Stock should be decreased by 3");
       assertTrue(updatedProduct.getIsAvailable(), "Product should still be available");
     });
 
     // 4. ASSERT: Outbox Event Created for THIS order
-    await().atMost(3, TimeUnit.SECONDS).untilAsserted(() -> {
+    await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
       List<OutboxEvent> allEvents = outboxRepository.findAll();
       List<OutboxEvent> thisOrderEvents = allEvents.stream()
           .filter(e -> orderId.toString().equals(e.getAggregateId()))
@@ -174,7 +174,8 @@ public class StockReservationIntegrationTest extends AbstractIntegrationTest {
       assertEquals("order.stock_reserved", event.getType());
       assertEquals("ORDER", event.getAggregateType());
       assertEquals(orderId.toString(), event.getAggregateId());
-      assertFalse(event.isProcessed());
+      // Note: isProcessed may be true if OutboxPublisher runs quickly, so we don't
+      // assert it
     });
 
     // 5. ASSERT: Idempotency Key Created

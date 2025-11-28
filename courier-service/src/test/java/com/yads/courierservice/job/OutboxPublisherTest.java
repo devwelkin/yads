@@ -14,8 +14,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import java.time.LocalDateTime;
@@ -36,7 +36,6 @@ class OutboxPublisherTest {
   @Mock
   private RabbitTemplate rabbitTemplate;
 
-  @Spy
   private ObjectMapper objectMapper = new ObjectMapper();
 
   @InjectMocks
@@ -79,11 +78,11 @@ class OutboxPublisherTest {
       // Act
       publisher.publishOutboxEvents();
 
-      // Assert
-      verify(rabbitTemplate, times(2)).convertAndSend(
+      // Assert - Implementation uses send() with Message, not convertAndSend()
+      verify(rabbitTemplate, times(2)).send(
           eq("courier_events_exchange"),
           anyString(),
-          any(Object.class));
+          any(Message.class));
     }
 
     @Test
@@ -119,13 +118,13 @@ class OutboxPublisherTest {
       // First event fails, second succeeds
       doThrow(new RuntimeException("RabbitMQ connection lost"))
           .doNothing()
-          .when(rabbitTemplate).convertAndSend(eq("courier_events_exchange"), anyString(), any(Object.class));
+          .when(rabbitTemplate).send(eq("courier_events_exchange"), anyString(), any(Message.class));
 
       // Act
       publisher.publishOutboxEvents();
 
       // Assert - Both events should be attempted
-      verify(rabbitTemplate, times(2)).convertAndSend(eq("courier_events_exchange"), anyString(), any(Object.class));
+      verify(rabbitTemplate, times(2)).send(eq("courier_events_exchange"), anyString(), any(Message.class));
 
       // Only event2 should be marked as processed
       verify(outboxRepository, times(1)).save(any(OutboxEvent.class));
@@ -142,24 +141,8 @@ class OutboxPublisherTest {
       publisher.publishOutboxEvents();
 
       // Assert
-      verify(rabbitTemplate, never()).convertAndSend(eq("courier_events_exchange"), anyString(), any(Object.class));
+      verify(rabbitTemplate, never()).send(eq("courier_events_exchange"), anyString(), any(Message.class));
       verify(outboxRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("should deserialize payload with ObjectMapper")
-    void shouldDeserializePayloadWithObjectMapper() throws Exception {
-      // Arrange
-      OutboxEvent event = createOutboxEvent("courier.assigned", false);
-
-      when(outboxRepository.findTop50ByProcessedFalseOrderByCreatedAtAsc())
-          .thenReturn(List.of(event));
-
-      // Act
-      publisher.publishOutboxEvents();
-
-      // Assert
-      verify(objectMapper).readValue(eq(event.getPayload()), eq(Object.class));
     }
 
     @Test
@@ -175,10 +158,10 @@ class OutboxPublisherTest {
       publisher.publishOutboxEvents();
 
       // Assert
-      verify(rabbitTemplate).convertAndSend(
+      verify(rabbitTemplate).send(
           eq("courier_events_exchange"),
           eq("courier.assigned"),
-          any(Object.class));
+          any(Message.class));
     }
 
     @Test
@@ -190,7 +173,7 @@ class OutboxPublisherTest {
       when(outboxRepository.findTop50ByProcessedFalseOrderByCreatedAtAsc())
           .thenReturn(List.of(event));
       doThrow(new RuntimeException("RabbitMQ error"))
-          .when(rabbitTemplate).convertAndSend(eq("courier_events_exchange"), anyString(), any(Object.class));
+          .when(rabbitTemplate).send(eq("courier_events_exchange"), anyString(), any(Message.class));
 
       // Act
       publisher.publishOutboxEvents();
