@@ -13,7 +13,7 @@ jobs:
 
     strategy:
       matrix:
-        service: [eureka, api-gateway, store-service, order-service, user-service, courier-service, notification-service]
+        service: [yads/eureka, yads/api-gateway, yads/store-service, yads/order-service, yads/user-service, yads/courier-service, yads/notification-service]
 
     steps:
     - uses: actions/checkout@v4
