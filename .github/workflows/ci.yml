@@ -1,20 +1,23 @@
-name: Java CI With Maven
+name: yads ci/cd pipeline
 
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
 
 jobs:
-  build:
+  build-and-push:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    strategy:
+      matrix:
+        service: [eureka, api-gateway, store-service, order-service, user-service, courier-service, notification-service]
 
     steps:
-    # 1. Checkout code from GitHub repository
     - uses: actions/checkout@v4
 
-    # 2. Set up JDK 21 environment
     - name: set up jdk 21
       uses: actions/setup-java@v4
       with:
@@ -22,6 +25,29 @@ jobs:
         distribution: 'temurin'
         cache: 'maven'
 
-    # 3. Build the project (also runs tests)
-    - name: build with maven
-      run: mvn -B package --file pom.xml
+    - name: build service jar
+      run: mvn -B package -pl ${{ matrix.service }} -am -DskipTests
+
+    # Login to AWS
+    - name: configure aws credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    # Login to Amazon ECR
+    - name: login to amazon ecr
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    # Build and push Docker image
+    - name: build and push docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./${{ matrix.service }}
+        file: ./Dockerfile
+        push: true
+        tags: ${{ steps.login-ecr.outputs.registry }}/${{ matrix.service }}:latest
+        build-args: |
+          JAR_FILE=target/*.jar
