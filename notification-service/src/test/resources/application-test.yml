@@ -1,0 +1,18 @@
+eureka:
+  client:
+    enabled: false
+spring:
+  cloud:
+    discovery:
+      enabled: false
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://mock-issuer.com
+          # Use same secret key for test JWT validation
+          jwk-set-uri: http://mock-issuer.com/.well-known/jwks.json
+  codec:
+    max-in-memory-size: 10MB
+server:
+  port: 0  # Random port

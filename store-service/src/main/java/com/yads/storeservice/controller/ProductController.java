@@ -124,11 +124,6 @@ public class ProductController {
         return ResponseEntity.ok(updatedProduct);
     }
 
-    /**
-     * BATCH OPERATIONS - CRITICAL for preventing N+1 problem
-     * These endpoints handle multiple products in a single transaction
-     */
-
     // Batch reserve stock (called when order is accepted)
     // All operations happen in a single transaction - if any fails, all rollback
     @PostMapping("/api/v1/products/batch-reserve")

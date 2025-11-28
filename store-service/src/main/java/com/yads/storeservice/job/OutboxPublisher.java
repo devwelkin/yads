@@ -1,15 +1,17 @@
 package com.yads.storeservice.job;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yads.storeservice.model.OutboxEvent;
 import com.yads.storeservice.repository.OutboxRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.core.Message;
+import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -20,7 +22,6 @@ public class OutboxPublisher {
 
   private final OutboxRepository outboxRepository;
   private final RabbitTemplate rabbitTemplate;
-  private final ObjectMapper objectMapper;
 
   @Scheduled(fixedDelay = 2000)
   @Transactional
@@ -35,9 +36,30 @@ public class OutboxPublisher {
 
     for (OutboxEvent event : events) {
       try {
-        Object payloadObj = objectMapper.readValue(event.getPayload(), Object.class);
-        rabbitTemplate.convertAndSend("order_events_exchange", event.getType(), payloadObj);
+        String exchange = event.getType().startsWith("product.")
+            ? "store_events_exchange"
+            : "order_events_exchange";
 
+        // 1. Read payload as raw JSON string (do NOT deserialize)
+        String jsonPayload = event.getPayload();
+
+        // 2. Prepare message headers
+        MessageProperties props = new MessageProperties();
+        props.setContentType(MessageProperties.CONTENT_TYPE_JSON);
+
+        // 3. Whisper the real class type to the consumer via header
+        if (event.getType().startsWith("product.") && !"product.deleted".equals(event.getType())) {
+          props.setHeader("__TypeId__", "com.yads.common.contracts.ProductEventDto");
+        } else if ("product.deleted".equals(event.getType())) {
+          props.setHeader("__TypeId__", "java.util.UUID");
+        }
+        // No need to set __TypeId__ for order.* events — consumers can handle Object
+
+        // 4. Send the message
+        Message message = new Message(jsonPayload.getBytes(StandardCharsets.UTF_8), props);
+        rabbitTemplate.send(exchange, event.getType(), message);
+
+        // 5. Mark event as processed
         event.setProcessed(true);
         outboxRepository.save(event);
 

@@ -2,6 +2,7 @@ package com.yads.orderservice.subscriber;
 
 import com.yads.common.contracts.CourierAssignedContract;
 import com.yads.common.contracts.OrderAssignedContract;
+import com.yads.orderservice.config.AmqpConfig;
 import com.yads.orderservice.model.Order;
 import com.yads.orderservice.model.OrderStatus;
 import com.yads.orderservice.repository.OrderRepository;
@@ -32,7 +33,7 @@ public class CourierAssignedSubscriber {
      * Handles courier.assigned events from courier-service.
      * Updates the order's courierID atomically.
      */
-    @RabbitListener(queues = "q.order_service.courier_assigned")
+    @RabbitListener(queues = AmqpConfig.Q_COURIER_ASSIGNED)
     @Transactional
     public void handleCourierAssigned(CourierAssignedContract contract) {
         log.info("Received 'courier.assigned' event. orderId={}, courierId={}",

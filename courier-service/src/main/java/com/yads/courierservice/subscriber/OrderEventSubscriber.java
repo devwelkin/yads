@@ -1,6 +1,7 @@
 package com.yads.courierservice.subscriber;
 
 import com.yads.common.contracts.OrderAssignmentContract;
+import com.yads.courierservice.config.AmqpConfig;
 import com.yads.courierservice.model.IdempotentEvent;
 import com.yads.courierservice.repository.IdempotentEventRepository;
 import com.yads.courierservice.service.CourierAssignmentService;
@@ -21,7 +22,7 @@ public class OrderEventSubscriber {
     private final CourierAssignmentService assignmentService;
     private final IdempotentEventRepository idempotentEventRepository;
 
-    @RabbitListener(queues = "q.courier_service.assign_order")
+    @RabbitListener(queues = AmqpConfig.Q_ASSIGN_ORDER)
     @Transactional
     public void handleOrderPreparing(OrderAssignmentContract contract) {
         log.info("Received order.preparing event: orderId={}, storeId={}",

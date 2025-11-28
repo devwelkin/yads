@@ -1,7 +1,9 @@
 package com.yads.common.contracts;
 
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.util.UUID;
 
@@ -11,10 +13,11 @@ import java.util.UUID;
  */
 @Data
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class CourierAssignmentFailedContract {
     private UUID orderId;
-    private UUID userId;   // For customer notification
-    private UUID storeId;  // For store notification
+    private UUID userId; // For customer notification
+    private UUID storeId; // For store notification
     private String reason; // e.g., "No available couriers in the area"
 }
-

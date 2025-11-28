@@ -9,6 +9,11 @@ spring:
     port: 5672
     username: guest
     password: guest
+    listener:
+      simple:
+        observation-enabled: true
+    template:
+      observation-enabled: true
 
   datasource:
     url: jdbc:postgresql://localhost:5436/notification_service_db
@@ -32,4 +37,12 @@ eureka:
   client:
     serviceUrl:
       defaultZone: http://localhost:8761/eureka/
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: "http://zipkin:9411/api/v2/spans"
 

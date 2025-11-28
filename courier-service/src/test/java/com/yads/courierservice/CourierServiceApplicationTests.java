@@ -1,10 +1,8 @@
 package com.yads.courierservice;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 
-@SpringBootTest
-class CourierServiceApplicationTests {
+class CourierServiceApplicationTests extends AbstractIntegrationTest {
 
     @Test
     void contextLoads() {

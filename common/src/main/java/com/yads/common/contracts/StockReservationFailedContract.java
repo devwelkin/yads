@@ -1,7 +1,9 @@
 package com.yads.common.contracts;
 
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.util.UUID;
 
@@ -11,9 +13,10 @@ import java.util.UUID;
  */
 @Data
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class StockReservationFailedContract {
     private UUID orderId;
     private UUID userId; // For customer notification
     private String reason; // e.g., "Insufficient stock for product 'x'"
 }
-

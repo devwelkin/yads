@@ -1,6 +1,7 @@
 package com.yads.orderservice.service;
 
 import com.yads.common.contracts.ProductEventDto;
+import com.yads.orderservice.config.AmqpConfig;
 import com.yads.orderservice.model.ProductSnapshot;
 import com.yads.orderservice.repository.ProductSnapshotRepository;
 import lombok.RequiredArgsConstructor;
@@ -13,7 +14,7 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-@RabbitListener(queues = "q.order_service.product_updates")
+@RabbitListener(queues = AmqpConfig.Q_PRODUCT_UPDATES)
 public class StoreEventSubscriber {
 
     private final ProductSnapshotRepository snapshotRepository;

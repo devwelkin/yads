@@ -10,6 +10,7 @@ spring:
     password: guest
     listener:
       simple:
+        observation-enabled: true
         prefetch: 10
         retry:
           enabled: true
@@ -17,6 +18,8 @@ spring:
           initial-interval: 1000ms
           multiplier: 2
           max-interval: 10000ms
+    template:
+      observation-enabled: true
 
   security:
     oauth2:
@@ -40,29 +43,19 @@ spring:
       ddl-auto: update
 
 
-# Logging Configuration
-logging:
-  level:
-    root: INFO
-    com.yads.storeservice: INFO
-    com.yads.storeservice.exception: INFO
-    com.yads.storeservice.services: DEBUG
-    org.springframework.web: WARN
-    org.hibernate.SQL: WARN
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
-    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
-  file:
-    name: logs/store-service.log
-    max-size: 10MB
-    max-history: 30
-
 
 eureka:
   client:
     serviceUrl:
       defaultZone: http://localhost:8761/eureka/
 
+management:
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: "http://zipkin:9411/api/v2/spans"
 
 server:
   port: 8081

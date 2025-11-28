@@ -5,6 +5,7 @@ import com.yads.common.dto.ValidationErrorResponse;
 import com.yads.common.exception.AccessDeniedException;
 import com.yads.common.exception.InsufficientStockException;
 import com.yads.common.exception.ResourceNotFoundException;
+import io.micrometer.tracing.Tracer;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,218 +20,221 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.UUID;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        private final Tracer tracer;
 
-    private String generateCorrelationId() {
-        return UUID.randomUUID().toString();
-    }
+        public GlobalExceptionHandler(Tracer tracer) {
+                this.tracer = tracer;
+        }
 
-    @ExceptionHandler(ResourceNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleResourceNotFoundException(
-            ResourceNotFoundException ex,
-            HttpServletRequest request) {
+        private String getTraceId() {
+                return tracer.currentSpan() != null ? tracer.currentSpan().context().traceId() : "no-trace-id";
+        }
 
-        String correlationId = generateCorrelationId();
+        @ExceptionHandler(ResourceNotFoundException.class)
+        public ResponseEntity<ErrorResponse> handleResourceNotFoundException(
+                        ResourceNotFoundException ex,
+                        HttpServletRequest request) {
 
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .status(HttpStatus.NOT_FOUND.value())
-                .error(HttpStatus.NOT_FOUND.getReasonPhrase())
-                .message(ex.getMessage())
-                .path(request.getRequestURI())
-                .timestamp(LocalDateTime.now())
-                .errorCode("RESOURCE_NOT_FOUND")
-                .correlationId(correlationId)
-                .build();
+                String correlationId = getTraceId();
 
-        return new ResponseEntity<>(errorResponse, HttpStatus.NOT_FOUND);
-    }
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .status(HttpStatus.NOT_FOUND.value())
+                                .error(HttpStatus.NOT_FOUND.getReasonPhrase())
+                                .message(ex.getMessage())
+                                .path(request.getRequestURI())
+                                .timestamp(LocalDateTime.now())
+                                .errorCode("RESOURCE_NOT_FOUND")
+                                .correlationId(correlationId)
+                                .build();
 
-    @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<ErrorResponse> handleAccessDeniedException(
-            AccessDeniedException ex,
-            HttpServletRequest request) {
+                return new ResponseEntity<>(errorResponse, HttpStatus.NOT_FOUND);
+        }
 
-        String correlationId = generateCorrelationId();
+        @ExceptionHandler(AccessDeniedException.class)
+        public ResponseEntity<ErrorResponse> handleAccessDeniedException(
+                        AccessDeniedException ex,
+                        HttpServletRequest request) {
 
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .status(HttpStatus.FORBIDDEN.value())
-                .error(HttpStatus.FORBIDDEN.getReasonPhrase())
-                .message(ex.getMessage())
-                .path(request.getRequestURI())
-                .timestamp(LocalDateTime.now())
-                .errorCode("ACCESS_DENIED")
-                .correlationId(correlationId)
-                .build();
+                String correlationId = getTraceId();
 
-        return new ResponseEntity<>(errorResponse, HttpStatus.FORBIDDEN);
-    }
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .status(HttpStatus.FORBIDDEN.value())
+                                .error(HttpStatus.FORBIDDEN.getReasonPhrase())
+                                .message(ex.getMessage())
+                                .path(request.getRequestURI())
+                                .timestamp(LocalDateTime.now())
+                                .errorCode("ACCESS_DENIED")
+                                .correlationId(correlationId)
+                                .build();
 
-    @ExceptionHandler(InvalidOrderStateException.class)
-    public ResponseEntity<ErrorResponse> handleInvalidOrderStateException(
-            InvalidOrderStateException ex,
-            HttpServletRequest request) {
+                return new ResponseEntity<>(errorResponse, HttpStatus.FORBIDDEN);
+        }
 
-        String correlationId = generateCorrelationId();
+        @ExceptionHandler(InvalidOrderStateException.class)
+        public ResponseEntity<ErrorResponse> handleInvalidOrderStateException(
+                        InvalidOrderStateException ex,
+                        HttpServletRequest request) {
 
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .status(HttpStatus.UNPROCESSABLE_ENTITY.value())
-                .error(HttpStatus.UNPROCESSABLE_ENTITY.getReasonPhrase())
-                .message(ex.getMessage())
-                .path(request.getRequestURI())
-                .timestamp(LocalDateTime.now())
-                .errorCode("INVALID_ORDER_STATE")
-                .correlationId(correlationId)
-                .build();
+                String correlationId = getTraceId();
 
-        return new ResponseEntity<>(errorResponse, HttpStatus.UNPROCESSABLE_ENTITY);
-    }
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .status(HttpStatus.UNPROCESSABLE_ENTITY.value())
+                                .error(HttpStatus.UNPROCESSABLE_ENTITY.getReasonPhrase())
+                                .message(ex.getMessage())
+                                .path(request.getRequestURI())
+                                .timestamp(LocalDateTime.now())
+                                .errorCode("INVALID_ORDER_STATE")
+                                .correlationId(correlationId)
+                                .build();
 
-    @ExceptionHandler(InsufficientStockException.class)
-    public ResponseEntity<ErrorResponse> handleInsufficientStockException(
-            InsufficientStockException ex,
-            HttpServletRequest request) {
+                return new ResponseEntity<>(errorResponse, HttpStatus.UNPROCESSABLE_ENTITY);
+        }
 
-        String correlationId = generateCorrelationId();
+        @ExceptionHandler(InsufficientStockException.class)
+        public ResponseEntity<ErrorResponse> handleInsufficientStockException(
+                        InsufficientStockException ex,
+                        HttpServletRequest request) {
 
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .status(HttpStatus.UNPROCESSABLE_ENTITY.value())
-                .error(HttpStatus.UNPROCESSABLE_ENTITY.getReasonPhrase())
-                .message(ex.getMessage())
-                .path(request.getRequestURI())
-                .timestamp(LocalDateTime.now())
-                .errorCode("INSUFFICIENT_STOCK")
-                .correlationId(correlationId)
-                .build();
+                String correlationId = getTraceId();
 
-        return new ResponseEntity<>(errorResponse, HttpStatus.UNPROCESSABLE_ENTITY);
-    }
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .status(HttpStatus.UNPROCESSABLE_ENTITY.value())
+                                .error(HttpStatus.UNPROCESSABLE_ENTITY.getReasonPhrase())
+                                .message(ex.getMessage())
+                                .path(request.getRequestURI())
+                                .timestamp(LocalDateTime.now())
+                                .errorCode("INSUFFICIENT_STOCK")
+                                .correlationId(correlationId)
+                                .build();
 
-    @ExceptionHandler(ExternalServiceException.class)
-    public ResponseEntity<ErrorResponse> handleExternalServiceException(
-            ExternalServiceException ex,
-            HttpServletRequest request) {
+                return new ResponseEntity<>(errorResponse, HttpStatus.UNPROCESSABLE_ENTITY);
+        }
 
-        String correlationId = generateCorrelationId();
+        @ExceptionHandler(ExternalServiceException.class)
+        public ResponseEntity<ErrorResponse> handleExternalServiceException(
+                        ExternalServiceException ex,
+                        HttpServletRequest request) {
 
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .status(HttpStatus.BAD_GATEWAY.value())
-                .error(HttpStatus.BAD_GATEWAY.getReasonPhrase())
-                .message(ex.getMessage())
-                .path(request.getRequestURI())
-                .timestamp(LocalDateTime.now())
-                .errorCode("EXTERNAL_SERVICE_ERROR")
-                .correlationId(correlationId)
-                .build();
+                String correlationId = getTraceId();
 
-        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_GATEWAY);
-    }
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .status(HttpStatus.BAD_GATEWAY.value())
+                                .error(HttpStatus.BAD_GATEWAY.getReasonPhrase())
+                                .message(ex.getMessage())
+                                .path(request.getRequestURI())
+                                .timestamp(LocalDateTime.now())
+                                .errorCode("EXTERNAL_SERVICE_ERROR")
+                                .correlationId(correlationId)
+                                .build();
 
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ValidationErrorResponse> handleValidationException(
-            MethodArgumentNotValidException ex,
-            HttpServletRequest request) {
+                return new ResponseEntity<>(errorResponse, HttpStatus.BAD_GATEWAY);
+        }
 
-        Map<String, String> validationErrors = new HashMap<>();
+        @ExceptionHandler(MethodArgumentNotValidException.class)
+        public ResponseEntity<ValidationErrorResponse> handleValidationException(
+                        MethodArgumentNotValidException ex,
+                        HttpServletRequest request) {
 
-        ex.getBindingResult().getAllErrors().forEach(error -> {
-            if (error instanceof FieldError fieldError) {
-                validationErrors.put(fieldError.getField(), error.getDefaultMessage());
-            }
-        });
+                Map<String, String> validationErrors = new HashMap<>();
 
-        String correlationId = generateCorrelationId();
-        log.debug("[{}] Validation failed - Path: {} - Errors: {}", correlationId, request.getRequestURI(), validationErrors);
+                ex.getBindingResult().getAllErrors().forEach(error -> {
+                        if (error instanceof FieldError fieldError) {
+                                validationErrors.put(fieldError.getField(), error.getDefaultMessage());
+                        }
+                });
 
-        ValidationErrorResponse errorResponse = ValidationErrorResponse.builder()
-                .status(HttpStatus.BAD_REQUEST.value())
-                .message("Validation failed")
-                .path(request.getRequestURI())
-                .timestamp(LocalDateTime.now())
-                .validationErrors(validationErrors)
-                .errorCode("VALIDATION_FAILED")
-                .correlationId(correlationId)
-                .build();
+                String correlationId = getTraceId();
+                log.debug("[{}] Validation failed - Path: {} - Errors: {}", correlationId, request.getRequestURI(),
+                                validationErrors);
 
-        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
-    }
+                ValidationErrorResponse errorResponse = ValidationErrorResponse.builder()
+                                .status(HttpStatus.BAD_REQUEST.value())
+                                .message("Validation failed")
+                                .path(request.getRequestURI())
+                                .timestamp(LocalDateTime.now())
+                                .validationErrors(validationErrors)
+                                .errorCode("VALIDATION_FAILED")
+                                .correlationId(correlationId)
+                                .build();
 
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ErrorResponse> handleIllegalArgumentException(
-            IllegalArgumentException ex,
-            HttpServletRequest request) {
+                return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
+        }
 
-        String correlationId = generateCorrelationId();
+        @ExceptionHandler(IllegalArgumentException.class)
+        public ResponseEntity<ErrorResponse> handleIllegalArgumentException(
+                        IllegalArgumentException ex,
+                        HttpServletRequest request) {
 
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .status(HttpStatus.BAD_REQUEST.value())
-                .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
-                .message(ex.getMessage())
-                .path(request.getRequestURI())
-                .timestamp(LocalDateTime.now())
-                .errorCode("INVALID_ARGUMENT")
-                .correlationId(correlationId)
-                .build();
+                String correlationId = getTraceId();
 
-        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
-    }
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .status(HttpStatus.BAD_REQUEST.value())
+                                .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
+                                .message(ex.getMessage())
+                                .path(request.getRequestURI())
+                                .timestamp(LocalDateTime.now())
+                                .errorCode("INVALID_ARGUMENT")
+                                .correlationId(correlationId)
+                                .build();
 
-    /**
-     * Handles optimistic locking failures (concurrent modifications).
-     * This prevents "zombie orders" where a customer cancels an order
-     * but a store owner simultaneously accepts it.
-     *
-     * The user-friendly message tells them to retry their operation.
-     */
-    @ExceptionHandler(OptimisticLockingFailureException.class)
-    public ResponseEntity<ErrorResponse> handleOptimisticLockingFailureException(
-            OptimisticLockingFailureException ex,
-            HttpServletRequest request) {
+                return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
+        }
 
-        String correlationId = generateCorrelationId();
-        log.warn("[{}] Optimistic locking conflict detected - Path: {} - User should retry",
-                correlationId, request.getRequestURI());
+        /**
+         * Handles optimistic locking failures (concurrent modifications).
+         * This prevents "zombie orders" where a customer cancels an order
+         * but a store owner simultaneously accepts it.
+         *
+         * The user-friendly message tells them to retry their operation.
+         */
+        @ExceptionHandler(OptimisticLockingFailureException.class)
+        public ResponseEntity<ErrorResponse> handleOptimisticLockingFailureException(
+                        OptimisticLockingFailureException ex,
+                        HttpServletRequest request) {
 
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .status(HttpStatus.CONFLICT.value())
-                .error(HttpStatus.CONFLICT.getReasonPhrase())
-                .message("The order was modified by another user. Please refresh and try again.")
-                .path(request.getRequestURI())
-                .timestamp(LocalDateTime.now())
-                .errorCode("CONCURRENT_MODIFICATION")
-                .correlationId(correlationId)
-                .build();
+                String correlationId = getTraceId();
+                log.warn("[{}] Optimistic locking conflict detected - Path: {} - User should retry",
+                                correlationId, request.getRequestURI());
 
-        return new ResponseEntity<>(errorResponse, HttpStatus.CONFLICT);
-    }
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .status(HttpStatus.CONFLICT.value())
+                                .error(HttpStatus.CONFLICT.getReasonPhrase())
+                                .message("The order was modified by another user. Please refresh and try again.")
+                                .path(request.getRequestURI())
+                                .timestamp(LocalDateTime.now())
+                                .errorCode("CONCURRENT_MODIFICATION")
+                                .correlationId(correlationId)
+                                .build();
 
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleGlobalException(
-            Exception ex,
-            HttpServletRequest request) {
+                return new ResponseEntity<>(errorResponse, HttpStatus.CONFLICT);
+        }
 
-        String correlationId = generateCorrelationId();
-        log.error("[{}] Unexpected error occurred - Path: {} - Exception: {}",
-                correlationId,
-                request.getRequestURI(),
-                ex.getMessage(),
-                ex);
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
-                .error(HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase())
-                .message("An unexpected error occurred. Please contact support if the problem persists.")
-                .path(request.getRequestURI())
-                .timestamp(LocalDateTime.now())
-                .errorCode("INTERNAL_SERVER_ERROR")
-                .correlationId(correlationId)
-                .build();
+        @ExceptionHandler(Exception.class)
+        public ResponseEntity<ErrorResponse> handleGlobalException(
+                        Exception ex,
+                        HttpServletRequest request) {
 
-        return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
-    }
+                String correlationId = getTraceId();
+                log.error("[{}] Unexpected error occurred - Path: {} - Exception: {}",
+                                correlationId,
+                                request.getRequestURI(),
+                                ex.getMessage(),
+                                ex);
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
+                                .error(HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase())
+                                .message("An unexpected error occurred. Please contact support if the problem persists.")
+                                .path(request.getRequestURI())
+                                .timestamp(LocalDateTime.now())
+                                .errorCode("INTERNAL_SERVER_ERROR")
+                                .correlationId(correlationId)
+                                .build();
+
+                return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
+        }
 }
-
-

@@ -5,6 +5,7 @@ import com.yads.courierservice.mapper.CourierMapper;
 import com.yads.courierservice.model.Courier;
 import com.yads.courierservice.model.CourierStatus;
 import com.yads.courierservice.repository.CourierRepository;
+import com.yads.common.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -28,9 +29,6 @@ public class CourierServiceImpl implements CourierService {
 
         log.info("Processing courier login for courierId: {}", courierId);
 
-        // Find the courier profile in our database.
-        // If it doesn't exist (e.g., first login), create a new profile with default values.
-        // This ensures we always have a record for courier assignment and tracking.
         Courier courierProfile = courierRepository.findById(courierId)
                 .orElseGet(() -> {
                     log.info("Courier {} not found in database. Creating new profile (first login).", courierId);
@@ -46,10 +44,52 @@ public class CourierServiceImpl implements CourierService {
 
         log.info("Courier profile loaded/created: id={}, status={}, isActive={}",
                 courierProfile.getId(), courierProfile.getStatus(), courierProfile.getIsActive());
-
-        // Assemble the response using data from both the database profile
-        // (status, vehicle, location) and the live JWT (name, email, picture)
         return courierMapper.toCourierResponse(courierProfile, jwt);
     }
-}
 
+    @Override
+    @Transactional
+    public CourierResponse updateStatus(Jwt jwt, CourierStatus status) {
+        UUID courierId = UUID.fromString(jwt.getSubject());
+
+        log.info("Updating courier status: courierId={}, newStatus={}", courierId, status);
+
+        Courier courier = courierRepository.findById(courierId)
+                .orElseThrow(() -> {
+                    log.warn("Courier not found: courierId={}", courierId);
+                    return new ResourceNotFoundException("Courier not found. Please call /me first to create profile.");
+                });
+
+        CourierStatus oldStatus = courier.getStatus();
+        courier.setStatus(status);
+        Courier updatedCourier = courierRepository.save(courier);
+
+        log.info("Courier status updated: courierId={}, oldStatus={}, newStatus={}",
+                courierId, oldStatus, status);
+
+        return courierMapper.toCourierResponse(updatedCourier, jwt);
+    }
+
+    @Override
+    @Transactional
+    public CourierResponse updateLocation(Jwt jwt, Double latitude, Double longitude) {
+        UUID courierId = UUID.fromString(jwt.getSubject());
+
+        log.info("Updating courier location: courierId={}, lat={}, lon={}", courierId, latitude, longitude);
+
+        Courier courier = courierRepository.findById(courierId)
+                .orElseThrow(() -> {
+                    log.warn("Courier not found: courierId={}", courierId);
+                    return new ResourceNotFoundException("Courier not found. Please call /me first to create profile.");
+                });
+
+        courier.setCurrentLatitude(latitude);
+        courier.setCurrentLongitude(longitude);
+        Courier updatedCourier = courierRepository.save(courier);
+
+        log.info("Courier location updated: courierId={}, lat={}, lon={}",
+                courierId, latitude, longitude);
+
+        return courierMapper.toCourierResponse(updatedCourier, jwt);
+    }
+}

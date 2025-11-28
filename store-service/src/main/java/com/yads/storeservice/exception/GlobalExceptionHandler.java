@@ -1,11 +1,13 @@
 package com.yads.storeservice.exception;
 
+import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.yads.common.dto.ErrorResponse;
 import com.yads.common.dto.ValidationErrorResponse;
 import com.yads.common.exception.AccessDeniedException;
 import com.yads.common.exception.DuplicateResourceException;
 import com.yads.common.exception.InsufficientStockException;
 import com.yads.common.exception.ResourceNotFoundException;
+import io.micrometer.tracing.Tracer;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,218 +15,271 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.UUID;
+import java.util.stream.Collectors;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        private final Tracer tracer;
 
-    /**
-     * Generate a unique correlation ID for tracking requests
-     */
-    private String generateCorrelationId() {
-        return UUID.randomUUID().toString();
-    }
+        public GlobalExceptionHandler(Tracer tracer) {
+                this.tracer = tracer;
+        }
 
-    /**
-     * Handles ResourceNotFoundException (404 - Not Found)
-     * Thrown when a requested resource (Store, Category, Product) is not found
-     * Note: Logging is done at service layer with more context
-     */
-    @ExceptionHandler(ResourceNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleResourceNotFoundException(
-            ResourceNotFoundException ex,
-            HttpServletRequest request) {
+        /**
+         * Get trace ID from Micrometer Tracer
+         */
+        private String getTraceId() {
+                return tracer.currentSpan() != null ? tracer.currentSpan().context().traceId() : "no-trace-id";
+        }
 
-        String correlationId = generateCorrelationId();
-        // No logging here - service layer has better context
+        /**
+         * Handles ResourceNotFoundException (404 - Not Found)
+         * Thrown when a requested resource (Store, Category, Product) is not found
+         * Note: Logging is done at service layer with more context
+         */
+        @ExceptionHandler(ResourceNotFoundException.class)
+        public ResponseEntity<ErrorResponse> handleResourceNotFoundException(
+                        ResourceNotFoundException ex,
+                        HttpServletRequest request) {
 
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .status(HttpStatus.NOT_FOUND.value())
-                .error(HttpStatus.NOT_FOUND.getReasonPhrase())
-                .message(ex.getMessage())
-                .path(request.getRequestURI())
-                .timestamp(LocalDateTime.now())
-                .errorCode("RESOURCE_NOT_FOUND")
-                .correlationId(correlationId)
-                .build();
+                String correlationId = getTraceId();
 
-        return new ResponseEntity<>(errorResponse, HttpStatus.NOT_FOUND);
-    }
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .status(HttpStatus.NOT_FOUND.value())
+                                .error(HttpStatus.NOT_FOUND.getReasonPhrase())
+                                .message(ex.getMessage())
+                                .path(request.getRequestURI())
+                                .timestamp(LocalDateTime.now())
+                                .errorCode("RESOURCE_NOT_FOUND")
+                                .correlationId(correlationId)
+                                .build();
 
-    /**
-     * Handles AccessDeniedException (403 - Forbidden)
-     * Thrown when user tries to access/modify a resource they don't own
-     * Note: Logging is done at service layer with more context (user ID, resource ID, owner ID)
-     */
-    @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<ErrorResponse> handleAccessDeniedException(
-            AccessDeniedException ex,
-            HttpServletRequest request) {
+                return new ResponseEntity<>(errorResponse, HttpStatus.NOT_FOUND);
+        }
 
-        String correlationId = generateCorrelationId();
-        // No logging here - service layer has better context with IDs
+        /**
+         * Handles AccessDeniedException (403 - Forbidden)
+         * Thrown when user tries to access/modify a resource they don't own
+         * Note: Logging is done at service layer with more context (user ID, resource
+         * ID, owner ID)
+         */
+        @ExceptionHandler(AccessDeniedException.class)
+        public ResponseEntity<ErrorResponse> handleAccessDeniedException(
+                        AccessDeniedException ex,
+                        HttpServletRequest request) {
 
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .status(HttpStatus.FORBIDDEN.value())
-                .error(HttpStatus.FORBIDDEN.getReasonPhrase())
-                .message(ex.getMessage())
-                .path(request.getRequestURI())
-                .timestamp(LocalDateTime.now())
-                .errorCode("ACCESS_DENIED")
-                .correlationId(correlationId)
-                .build();
+                String correlationId = getTraceId();
+                // No logging here - service layer has better context with IDs
 
-        return new ResponseEntity<>(errorResponse, HttpStatus.FORBIDDEN);
-    }
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .status(HttpStatus.FORBIDDEN.value())
+                                .error(HttpStatus.FORBIDDEN.getReasonPhrase())
+                                .message(ex.getMessage())
+                                .path(request.getRequestURI())
+                                .timestamp(LocalDateTime.now())
+                                .errorCode("ACCESS_DENIED")
+                                .correlationId(correlationId)
+                                .build();
 
-    /**
-     * Handles DuplicateResourceException (409 - Conflict)
-     * Thrown when trying to create a resource that already exists
-     * Note: Logging is done at service layer with more context
-     */
-    @ExceptionHandler(DuplicateResourceException.class)
-    public ResponseEntity<ErrorResponse> handleDuplicateResourceException(
-            DuplicateResourceException ex,
-            HttpServletRequest request) {
+                return new ResponseEntity<>(errorResponse, HttpStatus.FORBIDDEN);
+        }
 
-        String correlationId = generateCorrelationId();
-        // No logging here - service layer has better context
+        /**
+         * Handles DuplicateResourceException (409 - Conflict)
+         * Thrown when trying to create a resource that already exists
+         * Note: Logging is done at service layer with more context
+         */
+        @ExceptionHandler(DuplicateResourceException.class)
+        public ResponseEntity<ErrorResponse> handleDuplicateResourceException(
+                        DuplicateResourceException ex,
+                        HttpServletRequest request) {
 
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .status(HttpStatus.CONFLICT.value())
-                .error(HttpStatus.CONFLICT.getReasonPhrase())
-                .message(ex.getMessage())
-                .path(request.getRequestURI())
-                .timestamp(LocalDateTime.now())
-                .errorCode("DUPLICATE_RESOURCE")
-                .correlationId(correlationId)
-                .build();
+                String correlationId = getTraceId();
+                // No logging here - service layer has better context
 
-        return new ResponseEntity<>(errorResponse, HttpStatus.CONFLICT);
-    }
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .status(HttpStatus.CONFLICT.value())
+                                .error(HttpStatus.CONFLICT.getReasonPhrase())
+                                .message(ex.getMessage())
+                                .path(request.getRequestURI())
+                                .timestamp(LocalDateTime.now())
+                                .errorCode("DUPLICATE_RESOURCE")
+                                .correlationId(correlationId)
+                                .build();
 
-    /**
-     * Handles MethodArgumentNotValidException (400 - Bad Request)
-     * Thrown when request validation fails (@Valid annotation)
-     * Returns all field validation errors
-     */
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ValidationErrorResponse> handleValidationException(
-            MethodArgumentNotValidException ex,
-            HttpServletRequest request) {
+                return new ResponseEntity<>(errorResponse, HttpStatus.CONFLICT);
+        }
 
-        Map<String, String> validationErrors = new HashMap<>();
+        /**
+         * Handles MethodArgumentNotValidException (400 - Bad Request)
+         * Thrown when request validation fails (@Valid annotation)
+         * Returns all field validation errors
+         */
+        @ExceptionHandler(MethodArgumentNotValidException.class)
+        public ResponseEntity<ValidationErrorResponse> handleValidationException(
+                        MethodArgumentNotValidException ex,
+                        HttpServletRequest request) {
 
-        ex.getBindingResult().getAllErrors().forEach(error -> {
-            if (error instanceof FieldError fieldError) {
-                validationErrors.put(fieldError.getField(), error.getDefaultMessage());
-            }
-        });
+                Map<String, String> validationErrors = new HashMap<>();
 
-        String correlationId = generateCorrelationId();
-        log.debug("[{}] Validation failed - Path: {} - Errors: {}", correlationId, request.getRequestURI(), validationErrors);
+                ex.getBindingResult().getAllErrors().forEach(error -> {
+                        if (error instanceof FieldError fieldError) {
+                                validationErrors.put(fieldError.getField(), error.getDefaultMessage());
+                        }
+                });
 
-        ValidationErrorResponse errorResponse = ValidationErrorResponse.builder()
-                .status(HttpStatus.BAD_REQUEST.value())
-                .message("Validation failed")
-                .path(request.getRequestURI())
-                .timestamp(LocalDateTime.now())
-                .validationErrors(validationErrors)
-                .errorCode("VALIDATION_FAILED")
-                .correlationId(correlationId)
-                .build();
+                String correlationId = getTraceId();
+                log.debug("[{}] Validation failed - Path: {} - Errors: {}", correlationId, request.getRequestURI(),
+                                validationErrors);
 
-        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
-    }
+                ValidationErrorResponse errorResponse = ValidationErrorResponse.builder()
+                                .status(HttpStatus.BAD_REQUEST.value())
+                                .message("Validation failed")
+                                .path(request.getRequestURI())
+                                .timestamp(LocalDateTime.now())
+                                .validationErrors(validationErrors)
+                                .errorCode("VALIDATION_FAILED")
+                                .correlationId(correlationId)
+                                .build();
 
-    /**
-     * Handles InsufficientStockException (422 - Unprocessable Entity)
-     * Thrown when there is not enough stock for a product operation
-     * Note: Logging is done at service layer with more context (product ID, available stock, requested quantity)
-     */
-    @ExceptionHandler(InsufficientStockException.class)
-    public ResponseEntity<ErrorResponse> handleInsufficientStockException(
-            InsufficientStockException ex,
-            HttpServletRequest request) {
+                return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
+        }
 
-        String correlationId = generateCorrelationId();
-        // No logging here - service layer has better context with stock details
+        /**
+         * Handles InsufficientStockException (422 - Unprocessable Entity)
+         * Thrown when there is not enough stock for a product operation
+         * Note: Logging is done at service layer with more context (product ID,
+         * available stock, requested quantity)
+         */
+        @ExceptionHandler(InsufficientStockException.class)
+        public ResponseEntity<ErrorResponse> handleInsufficientStockException(
+                        InsufficientStockException ex,
+                        HttpServletRequest request) {
 
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .status(HttpStatus.UNPROCESSABLE_ENTITY.value())
-                .error(HttpStatus.UNPROCESSABLE_ENTITY.getReasonPhrase())
-                .message(ex.getMessage())
-                .path(request.getRequestURI())
-                .timestamp(LocalDateTime.now())
-                .errorCode("INSUFFICIENT_STOCK")
-                .correlationId(correlationId)
-                .build();
+                String correlationId = getTraceId();
+                // No logging here - service layer has better context with stock details
 
-        return new ResponseEntity<>(errorResponse, HttpStatus.UNPROCESSABLE_ENTITY);
-    }
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .status(HttpStatus.UNPROCESSABLE_ENTITY.value())
+                                .error(HttpStatus.UNPROCESSABLE_ENTITY.getReasonPhrase())
+                                .message(ex.getMessage())
+                                .path(request.getRequestURI())
+                                .timestamp(LocalDateTime.now())
+                                .errorCode("INSUFFICIENT_STOCK")
+                                .correlationId(correlationId)
+                                .build();
 
-    /**
-     * Handles IllegalArgumentException (400 - Bad Request)
-     * Thrown when method receives invalid arguments
-     * Note: Logging is done at service layer with more context
-     */
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ErrorResponse> handleIllegalArgumentException(
-            IllegalArgumentException ex,
-            HttpServletRequest request) {
+                return new ResponseEntity<>(errorResponse, HttpStatus.UNPROCESSABLE_ENTITY);
+        }
 
-        String correlationId = generateCorrelationId();
-        // No logging here - service layer has better context
+        /**
+         * Handles IllegalArgumentException (400 - Bad Request)
+         * Thrown when method receives invalid arguments
+         * Note: Logging is done at service layer with more context
+         */
+        @ExceptionHandler(IllegalArgumentException.class)
+        public ResponseEntity<ErrorResponse> handleIllegalArgumentException(
+                        IllegalArgumentException ex,
+                        HttpServletRequest request) {
 
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .status(HttpStatus.BAD_REQUEST.value())
-                .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
-                .message(ex.getMessage())
-                .path(request.getRequestURI())
-                .timestamp(LocalDateTime.now())
-                .errorCode("INVALID_ARGUMENT")
-                .correlationId(correlationId)
-                .build();
+                String correlationId = getTraceId();
 
-        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
-    }
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .status(HttpStatus.BAD_REQUEST.value())
+                                .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
+                                .message(ex.getMessage())
+                                .path(request.getRequestURI())
+                                .timestamp(LocalDateTime.now())
+                                .errorCode("INVALID_ARGUMENT")
+                                .correlationId(correlationId)
+                                .build();
 
-    /**
-     * Handles all other unexpected exceptions (500 - Internal Server Error)
-     * Generic handler for any unhandled exceptions
-     */
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleGlobalException(
-            Exception ex,
-            HttpServletRequest request) {
+                return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
+        }
 
-        String correlationId = generateCorrelationId();
-        // Log the full exception with stack trace for debugging
-        log.error("[{}] Unexpected error occurred - Path: {} - Exception: {}",
-                correlationId,
-                request.getRequestURI(),
-                ex.getMessage(),
-                ex);
+        /**
+         * Handles HttpMessageNotReadableException (400 - Bad Request)
+         * Thrown when JSON parsing fails (e.g., invalid enum value, malformed JSON)
+         */
+        @ExceptionHandler(HttpMessageNotReadableException.class)
+        public ResponseEntity<ErrorResponse> handleHttpMessageNotReadableException(
+                        HttpMessageNotReadableException ex,
+                        HttpServletRequest request) {
 
-        // Return generic message to client (avoid exposing internal details)
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
-                .error(HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase())
-                .message("An unexpected error occurred. Please contact support if the problem persists.")
-                .path(request.getRequestURI())
-                .timestamp(LocalDateTime.now())
-                .errorCode("INTERNAL_SERVER_ERROR")
-                .correlationId(correlationId)
-                .build();
+                String correlationId = getTraceId();
+                String message = "Invalid request body";
 
-        return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
-    }
+                // Check if this is an enum parsing error
+                Throwable cause = ex.getCause();
+                if (cause instanceof InvalidFormatException invalidFormatEx) {
+                        Class<?> targetType = invalidFormatEx.getTargetType();
+                        if (targetType != null && targetType.isEnum()) {
+                                Object[] enumConstants = targetType.getEnumConstants();
+                                String validValues = Arrays.stream(enumConstants)
+                                                .map(Object::toString)
+                                                .collect(Collectors.joining(", "));
+                                message = String.format("Invalid value '%s' for field '%s'. Valid values are: [%s]",
+                                                invalidFormatEx.getValue(),
+                                                invalidFormatEx.getPath().get(invalidFormatEx.getPath().size() - 1)
+                                                                .getFieldName(),
+                                                validValues);
+                        }
+                }
+
+                log.debug("[{}] Message not readable - Path: {} - Error: {}", correlationId, request.getRequestURI(),
+                                ex.getMessage());
+
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .status(HttpStatus.BAD_REQUEST.value())
+                                .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
+                                .message(message)
+                                .path(request.getRequestURI())
+                                .timestamp(LocalDateTime.now())
+                                .errorCode("INVALID_REQUEST_BODY")
+                                .correlationId(correlationId)
+                                .build();
+
+                return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
+        }
+
+        /**
+         * Handles all other unexpected exceptions (500 - Internal Server Error)
+         * Generic handler for any unhandled exceptions
+         */
+        @ExceptionHandler(Exception.class)
+        public ResponseEntity<ErrorResponse> handleGlobalException(
+                        Exception ex,
+                        HttpServletRequest request) {
+
+                String correlationId = getTraceId();
+                // Log the full exception with stack trace for debugging
+                log.error("[{}] Unexpected error occurred - Path: {} - Exception: {}",
+                                correlationId,
+                                request.getRequestURI(),
+                                ex.getMessage(),
+                                ex);
+
+                // Return generic message to client (avoid exposing internal details)
+                ErrorResponse errorResponse = ErrorResponse.builder()
+                                .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
+                                .error(HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase())
+                                .message("An unexpected error occurred. Please contact support if the problem persists.")
+                                .path(request.getRequestURI())
+                                .timestamp(LocalDateTime.now())
+                                .errorCode("INTERNAL_SERVER_ERROR")
+                                .correlationId(correlationId)
+                                .build();
+
+                return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
+        }
 }

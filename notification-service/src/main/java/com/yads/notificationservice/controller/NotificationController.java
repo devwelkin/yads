@@ -91,6 +91,14 @@ public class NotificationController {
 
         log.info("Getting notification history: userId={}, page={}, size={}", userId, page, size);
 
+        // Validate pagination parameters
+        if (page < 0) {
+            throw new IllegalArgumentException("Page number must not be less than zero");
+        }
+        if (size < 1) {
+            throw new IllegalArgumentException("Page size must not be less than one");
+        }
+
         Pageable pageable = PageRequest.of(page, size);
         Page<NotificationDto> notifications = notificationService.getNotificationHistory(userId, pageable);
 
@@ -132,4 +140,3 @@ public class NotificationController {
         throw new IllegalStateException("Invalid authentication principal");
     }
 }
-

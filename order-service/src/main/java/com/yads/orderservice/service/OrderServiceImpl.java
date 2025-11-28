@@ -246,11 +246,6 @@ public class OrderServiceImpl implements OrderService {
         return orderMapper.toOrderResponse(updatedOrder);
     }
 
-    // REMOVED: This method is no longer used after migrating to async saga pattern
-    // Order status is now updated in two places:
-    // 1. acceptOrder() sets status to RESERVING_STOCK
-    // 2. StockReplySubscriber.handleStockReserved() sets status to PREPARING
-
     @Override
     @Transactional
     public OrderResponse pickupOrder(UUID orderId, Jwt jwt) {

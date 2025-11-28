@@ -1,0 +1,42 @@
+spring:
+  application:
+    name: courier-service-test
+
+  # TestContainers will override these dynamically
+  datasource:
+    url: jdbc:postgresql://localhost:5435/courier_test_db
+    username: test
+    password: test
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop # Recreate schema for each test
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  # TestContainers will override these dynamically
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+
+  # Disable OAuth2 for integration tests (we'll mock JWT)
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8700/realms/yads
+
+# Disable Eureka for tests
+eureka:
+  client:
+    enabled: false
+
+# Disable scheduled jobs in tests (we'll test them manually)
+spring.task.scheduling.enabled: false
+
+server:
+  port: 0 # Random port for parallel test execution

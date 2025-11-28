@@ -1,105 +1,266 @@
 services:
-  store-service-postgres:
-    image: postgres:16-alpine
-    container_name: store-service-postgres
+  # --- INFRASTRUCTURE ---
+
+  eureka:
+    build:
+      context: ./eureka
+      dockerfile: ../Dockerfile
+      args:
+        JAR_FILE: target/*.jar
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8761/actuator/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "8761:8761"
+    networks:
+      - yads-network
+
+  zipkin:
+    image: openzipkin/zipkin
+    container_name: zipkin
+    ports:
+      - "9411:9411"
+    networks:
+      - yads-network
+
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: dozzle
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "8888:8080"
+    networks:
+      - yads-network
+
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: ../Dockerfile
+      args:
+        JAR_FILE: target/*.jar
+    ports:
+      - "9000:9000"
     environment:
-      POSTGRES_DB: store_service_db
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka:8761/eureka/
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=http://localhost:8700/realms/yads-realm
+      # jwk-set-uri anahtarları çekmek için kullanılır (docker içi iletişim)
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI=http://keycloak:8080/realms/yads-realm/protocol/openid-connect/certs
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    networks:
+      - yads-network
+
+  # --- MICROSERVICES ---
+
+  store-service:
+    build:
+      context: ./store-service
+      dockerfile: ../Dockerfile
+      args:
+        JAR_FILE: target/*.jar
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/store_service_db
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka:8761/eureka/
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=http://localhost:8700/realms/yads-realm
+      # jwk-set-uri anahtarları çekmek için kullanılır (docker içi iletişim)
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI=http://keycloak:8080/realms/yads-realm/protocol/openid-connect/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    networks:
+      - yads-network
+
+  order-service:
+    build:
+      context: ./order-service
+      dockerfile: ../Dockerfile
+      args:
+        JAR_FILE: target/*.jar
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/order_service_db
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka:8761/eureka/
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=http://localhost:8700/realms/yads-realm
+      # jwk-set-uri anahtarları çekmek için kullanılır (docker içi iletişim)
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI=http://keycloak:8080/realms/yads-realm/protocol/openid-connect/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    networks:
+      - yads-network
+
+  user-service:
+    build:
+      context: ./user-service
+      dockerfile: ../Dockerfile
+      args:
+        JAR_FILE: target/*.jar
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/user_service_db
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka:8761/eureka/
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=http://localhost:8700/realms/yads-realm
+      # jwk-set-uri anahtarları çekmek için kullanılır (docker içi iletişim)
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI=http://keycloak:8080/realms/yads-realm/protocol/openid-connect/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    networks:
+      - yads-network
+
+  courier-service:
+    build:
+      context: ./courier-service
+      dockerfile: ../Dockerfile
+      args:
+        JAR_FILE: target/*.jar
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/courier_service_db
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka:8761/eureka/
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=http://localhost:8700/realms/yads-realm
+      # jwk-set-uri anahtarları çekmek için kullanılır (docker içi iletişim)
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI=http://keycloak:8080/realms/yads-realm/protocol/openid-connect/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    networks:
+      - yads-network
+
+  notification-service:
+    build:
+      context: ./notification-service
+      dockerfile: ../Dockerfile
+      args:
+        JAR_FILE: target/*.jar
+    ports:
+      - "8085:8085"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/notification_service_db
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka:8761/eureka/
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=http://localhost:8700/realms/yads-realm
+      # jwk-set-uri anahtarları çekmek için kullanılır (docker içi iletişim)
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI=http://keycloak:8080/realms/yads-realm/protocol/openid-connect/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      eureka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    networks:
+      - yads-network
+
+  # --- DATABASE ---
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
     ports:
       - "5432:5432"
-    volumes:
-      - postgres_data_store:/var/lib/postgresql/data
-  user-service-postgres:
-    image: postgres:16-alpine
-    container_name: user-service-postgres
     environment:
-      POSTGRES_DB: user_service_db
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
-    ports:
-      - "5433:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     volumes:
-      - postgres_data_user:/var/lib/postgresql/data
-  order-service-postgres:
-    image: postgres:16-alpine
-    container_name: order-service-postgres
-    environment:
-      POSTGRES_DB: order_service_db
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-    ports:
-      - "5434:5432"
-    volumes:
-      - postgres_data_order:/var/lib/postgresql/data
-  courier-service-postgres:
-    image: postgres:16-alpine
-    container_name: courier-service-postgres
-    environment:
-      POSTGRES_DB: courier_service_db
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-    ports:
-      - "5435:5432"
-    volumes:
-      - postgres_data_courier:/var/lib/postgresql/data
-  notification-service-postgres:
-    image: postgres:16-alpine
-    container_name: notification-service-postgres
-    environment:
-      POSTGRES_DB: notification_service_db
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-    ports:
-      - "5436:5432"
-    volumes:
-      - postgres_data_notification:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - yads-network
 
-  # Keycloak's Database
-  keycloak_db:
-    image: postgres:16
-    container_name: kc_postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: keycloak_db
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-    volumes:
-      - postgres_data_keycloak:/var/lib/postgresql/data
-
-  # Keycloak Authentication Service
   keycloak:
     image: quay.io/keycloak/keycloak:latest
     container_name: keycloak
     command: start-dev --import-realm
     environment:
       KC_DB: postgres
-      KC_DB_URL_HOST: keycloak_db
+      KC_DB_URL_HOST: postgres
       KC_DB_URL_DATABASE: keycloak_db
       KC_DB_USERNAME: postgres
       KC_DB_PASSWORD: password
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: 1234
+      KC_HTTP_ENABLED: true
+      KC_HOSTNAME_STRICT: false
+      KC_HOSTNAME_STRICT_HTTPS: false
+      KC_HEALTH_ENABLED: true
+    healthcheck:
+      test: [ "CMD", "bash", "-c", "cat < /dev/null > /dev/tcp/127.0.0.1/8080" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
     ports:
       - "8700:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - yads-network
+
   rabbitmq:
     image: rabbitmq:3.13-management
-    container_name: 'rabbitmq'
-    hostname: 'yads-rabbit'
+    container_name: rabbitmq
+    hostname: yads-rabbit
     ports:
       - "5672:5672"
       - "15672:15672"
     environment:
       - RABBITMQ_DEFAULT_USER=guest
       - RABBITMQ_DEFAULT_PASS=guest
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "-q", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq/
+    networks:
+      - yads-network
+
+networks:
+  yads-network:
+    driver: bridge
 
 volumes:
-  postgres_data_store:
-  postgres_data_user:
-  postgres_data_order:
-  postgres_data_courier:
-  postgres_data_notification:
-  postgres_data_keycloak:
+  postgres_data:
   rabbitmq_data:
