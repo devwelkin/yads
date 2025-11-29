@@ -145,3 +145,14 @@ yads/
 ├── common/               # Shared DTOs & contracts
 └── docker-compose.yml    # Full stack orchestration
 ```
+
+## TODO
+
+- [ ] **Terraform AWS infrastructure** - ECS/EKS deployment, RDS, Amazon MQ
+- [ ] Auto-reset courier status to `AVAILABLE` after `order.delivered` or `order.cancelled`
+- [ ] Expand test coverage for failure scenarios (`stock_reservation_failed`, courier assignment failures)
+
+## Known Limitations
+
+- Courier remains `BUSY` after order completion. A status endpoint exists for manual updates; automatic reset is planned.
+- Failure path tests (`order.stock_reservation_failed`, courier-assignment-failure) need more coverage.
